@@ -35,6 +35,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [allFolders, setAllFolders] = useState([]);
   const [sharePassword, setSharePassword] = useState('');
   const [thumbnails, setThumbnails] = useState({}); // { fileName: blobUrl }
+  // 1. Add new state for drag-and-drop
+  const [dragOverFolder, setDragOverFolder] = useState(null); // name of folder being dragged over
+  const [dragOverGrid, setDragOverGrid] = useState(false); // true if dragging over empty area
+  const [draggedItem, setDraggedItem] = useState(null); // { type, name } if dragging from inside
+  const [goBackDragOver, setGoBackDragOver] = useState(false); // for Go Back button drag-over
 
   React.useEffect(() => {
     if (!supabase) return;
@@ -441,25 +446,120 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     // eslint-disable-next-line
   }, [files, supabase, session, folder, bucketName]);
 
+  // 2. Helper: handle drop on folder
+  async function handleDropOnFolder(folderName, event) {
+    event.preventDefault();
+    setDragOverFolder(null);
+    setDragOverGrid(false);
+    // If dragging from inside the app (move)
+    if (draggedItem) {
+      if (draggedItem.type === 'file' || draggedItem.type === 'folder') {
+        // Don't allow moving into self or subfolder
+        if (draggedItem.type === 'folder' && folder + draggedItem.name === folder + folderName) return;
+        setMoveMode(true);
+        setMoveItem(draggedItem);
+        setMoveDest(folder ? (folder.endsWith('/') ? folder : folder + '/') + folderName : folderName);
+        setDraggedItem(null);
+        return;
+      }
+    }
+    // If dragging from outside (upload)
+    if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+      const filesToUpload = Array.from(event.dataTransfer.files);
+      const targetFolder = folder ? (folder.endsWith('/') ? folder : folder + '/') + folderName : folderName;
+      await uploadFilesToTarget(filesToUpload, targetFolder);
+    }
+  }
+  // 3. Helper: handle drop on grid (empty area)
+  async function handleDropOnGrid(event) {
+    event.preventDefault();
+    setDragOverGrid(false);
+    setDragOverFolder(null);
+    // If dragging from inside the app (move)
+    if (draggedItem) {
+      if (draggedItem.type === 'file' || draggedItem.type === 'folder') {
+        setMoveMode(true);
+        setMoveItem(draggedItem);
+        setMoveDest(folder || '');
+        setDraggedItem(null);
+        return;
+      }
+    }
+    // If dragging from outside (upload)
+    if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+      const filesToUpload = Array.from(event.dataTransfer.files);
+      await uploadFilesToTarget(filesToUpload, folder);
+    }
+  }
+  // 4. Helper: upload files to a specific folder
+  async function uploadFilesToTarget(filesToUpload, targetFolder) {
+    setError('');
+    setErrorModalOpen(false);
+    if (!supabase || !session) {
+      setError('Please sign in first.');
+      setErrorModalOpen(true);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    setUploading(true);
+    const folderPath = targetFolder ? (targetFolder.endsWith('/') ? targetFolder : targetFolder + '/') : '';
+    let duplicateFound = false;
+    for (const file of filesToUpload) {
+      const filePath = folderPath + file.name;
+      const newName = file.name.trim().toLowerCase();
+      const duplicate = files.some(f => f.name && f.name.trim().toLowerCase() === newName);
+      if (duplicate) {
+        setError(`A file named "${file.name}" already exists in this folder. Please rename or delete the existing file.`);
+        setErrorModalOpen(true);
+        duplicateFound = true;
+        continue;
+      }
+      const { error } = await supabase.storage.from(bucketName).upload(filePath, file);
+      if (error) {
+        setError(error.message);
+        setErrorModalOpen(true);
+      }
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!duplicateFound) await fetchFiles(session);
+  }
+
+  // Helper: handle drop on Go Back button
+  async function handleDropOnGoBack(event) {
+    event.preventDefault();
+    setGoBackDragOver(false);
+    setDraggedItem(null);
+    if (!draggedItem) return;
+    // Compute parent folder
+    if (!folder) return; // already at root
+    const parts = folder.split('/').filter(Boolean);
+    const parentFolder = parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : '';
+    setMoveMode(true);
+    setMoveItem(draggedItem);
+    setMoveDest(parentFolder);
+  }
+
   // JSX and other code remain unchanged...
 
   return (
     <>
       <div className="actions-row">
-        {folder && (
-          <button
-            onClick={goBackFolder}
-            className="go-back-icon-btn"
-            title="Go back to parent folder"
-            style={{ marginRight: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-              <circle cx="11" cy="11" r="11" />
-              <path d="M13.5 7L9.5 11L13.5 15" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            <span style={{ color: '#7c3aed', fontWeight: 600, fontSize: '15px', letterSpacing: '0.5px' }}>Go Back</span>
-          </button>
-        )}
+        <button
+          onClick={goBackFolder}
+          className={"go-back-icon-btn" + (goBackDragOver ? " drag-over" : "")}
+          title="Go back to parent folder"
+          style={{ marginRight: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          onDragOver={e => { e.preventDefault(); setGoBackDragOver(true); }}
+          onDragLeave={e => { e.preventDefault(); setGoBackDragOver(false); }}
+          onDrop={handleDropOnGoBack}
+        >
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <circle cx="11" cy="11" r="11" />
+            <path d="M13.5 7L9.5 11L13.5 15" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{ color: '#7c3aed', fontWeight: 600, fontSize: '15px', letterSpacing: '0.5px' }}>Go Back</span>
+        </button>
         <input
           ref={fileInputRef}
           type="text"
@@ -480,7 +580,12 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         </button>
       </div>
 
-      <div className="file-grid">
+      <div
+        className={"file-grid" + (dragOverGrid ? " drag-over" : "")}
+        onDragOver={e => { if (e.target === e.currentTarget) { e.preventDefault(); setDragOverGrid(true); } }}
+        onDragLeave={e => { if (e.target === e.currentTarget) { e.preventDefault(); setDragOverGrid(false); } }}
+        onDrop={e => { if (e.target === e.currentTarget) handleDropOnGrid(e); }}
+      >
         {files.length === 0 && (
           <div style={{ gridColumn: '1/-1', textAlign: 'center', color: '#888', fontSize: '1.1em', padding: '40px 0' }}>
             No files or folders yet.
@@ -492,10 +597,19 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           return isFolder ? (
           <div
             key={file.name}
-              className="folder-card"
+              className={"folder-card" + (dragOverFolder === file.name ? " drag-over" : "")}
             onClick={() => enterFolder(file.name)}
             tabIndex={0}
             title="Open folder"
+            draggable
+            onDragStart={e => {
+              setDraggedItem({ type: 'folder', name: file.name });
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragEnd={() => setDraggedItem(null)}
+            onDragOver={e => { e.preventDefault(); setDragOverFolder(file.name); }}
+            onDragLeave={e => { e.preventDefault(); setDragOverFolder(null); }}
+            onDrop={e => handleDropOnFolder(file.name, e)}
           >
               <span className="folder-icon" role="img" aria-label="Folder">📁</span>
               <span className="folder-name">{file.name}</span>
@@ -539,6 +653,12 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
               className="file-card"
               tabIndex={0}
               title="File"
+              draggable
+              onDragStart={e => {
+                setDraggedItem({ type: 'file', name: file.name });
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragEnd={() => setDraggedItem(null)}
             >
               {/* Thumbnail logic */}
               {(["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext) && thumbnails[file.name]) ? (

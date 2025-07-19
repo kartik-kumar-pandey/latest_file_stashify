@@ -1021,3 +1021,10 @@ body .modal-content .button {
   justify-content: center;
   box-sizing: border-box;
 } 
+
+.drag-over {
+  background: #eaf3ff !important;
+  border: 2px solid #4f8cff !important;
+  box-shadow: 0 2px 12px rgba(79,140,255,0.10) !important;
+  opacity: 1 !important;
+} 
