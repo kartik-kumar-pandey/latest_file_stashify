@@ -20,6 +20,7 @@ function AppContent() {
   const [password, setPassword] = useState('');
   const location = useLocation();
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  // Remove OTP-related state
 
   useEffect(() => {
     if (supabase) {
@@ -123,6 +124,8 @@ function AppContent() {
       alert('Password reset email sent! Check your inbox.');
     }
   }
+
+  // Remove sendOtp and verifyOtp functions
 
   if (location.pathname === '/share') {
     return <SharePage />;
