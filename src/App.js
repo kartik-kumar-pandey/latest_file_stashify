@@ -171,6 +171,23 @@ function AppContent() {
             onChange={(e) => setPassword(e.target.value)}
             className="input-field"
           />
+          {/* Google Sign-In Button */}
+          <button
+            className="button"
+            style={{ marginTop: 12, background: '#fff', color: '#333', border: '1px solid #ccc', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}
+            onClick={async () => {
+              setError('');
+              if (!supabase) {
+                setError('Supabase client not initialized.');
+                return;
+              }
+              const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+              if (error) setError(error.message);
+            }}
+          >
+            <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google" style={{ width: 20, height: 20 }} />
+            Sign in with Google
+          </button>
           <div className="login-actions-row">
             {showSignUp ? (
               <button onClick={signUp} className="button">
