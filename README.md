@@ -1,5 +1,117 @@
 # FileStashify
 
+> **See the full workflow and architecture:** [WORKFLOW.md](./WORKFLOW.md)
+
+## Visual Workflow Diagram
+
+```mermaid
+flowchart TD
+  %% Entry Point
+  Start([User opens app])
+
+  %% Initialization
+  subgraph INIT["Initialization"]
+    style INIT fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    Init1([Prompt for Supabase URL, Anon Key, Bucket Name])
+    Init2([Validate bucket exists via Supabase API])
+    Init3([Save credentials to localStorage])
+    Init4([Create Supabase client])
+    Start --> Init1 --> Init2 --> Init3 --> Init4
+  end
+
+  %% Authentication
+  subgraph AUTH["Authentication"]
+    style AUTH fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    Auth1([Show login/signup form])
+    Auth2([User enters email/password])
+    Auth3([Sign In: supabase.auth.signInWithPassword])
+    Auth4([Sign Up: supabase.auth.signUp])
+    Auth5([Google OAuth: supabase.auth.signInWithOAuth])
+    Auth6([Session set in React state])
+    Auth7([Show error if failed])
+    Auth8([Listen for auth state changes])
+    Auth9([Session auto-restored on reload])
+    Init4 --> Auth1
+    Auth1 --> Auth2
+    Auth2 --> Auth3 --> Auth6
+    Auth2 --> Auth4 --> Auth6
+    Auth1 --> Auth5 --> Auth6
+    Auth3 --> Auth7
+    Auth4 --> Auth7
+    Auth5 --> Auth7
+    Auth6 --> Auth8 --> Auth9
+  end
+
+  %% Main App
+  subgraph MAIN["Main App Workflow"]
+    style MAIN fill:#e8f5e9,stroke:#43a047,stroke-width:2px
+    Main1([User authenticated])
+    Main2([Show topbar, file manager, dark mode toggle])
+    Main3([FileManager fetches files/folders from Supabase])
+    Main4([User uploads files])
+    Main5([Check for duplicates, call supabase.storage.upload])
+    Main6([Create folder: upload .placeholder file])
+    Main7([Rename/Delete/Move: call Supabase API])
+    Main8([Update file/folder list])
+    Main9([Preview file: download, create blob URL, show modal/page])
+    Main10([Download file: create signed URL, trigger download])
+    Main11([Share file: create signed URL, generate preview/share link])
+    Main12([Show guide/help])
+    Auth9 --> Main1
+    Main1 --> Main2 --> Main3
+    Main3 --> Main4 --> Main5 --> Main8
+    Main3 --> Main6 --> Main8
+    Main3 --> Main7 --> Main8
+    Main3 --> Main9
+    Main3 --> Main10
+    Main3 --> Main11
+    Main2 --> Main12
+  end
+
+  %% Password Reset
+  subgraph PWRESET["Password Reset"]
+    style PWRESET fill:#fce4ec,stroke:#d81b60,stroke-width:2px
+    PW1([User clicks Forgot Password])
+    PW2([Call supabase.auth.resetPasswordForEmail])
+    PW3([User receives email])
+    PW4([User clicks recovery link with access_token])
+    PW5([Show ResetPasswordPage])
+    PW6([User sets new password])
+    PW7([Set session with access_token])
+    PW8([Call supabase.auth.updateUser])
+    PW9([Show success or error])
+    Auth1 -.-> PW1
+    PW1 --> PW2 --> PW3 --> PW4 --> PW5 --> PW6 --> PW7 --> PW8 --> PW9
+  end
+
+  %% Share/Preview Pages
+  subgraph SHARE["Share & Preview Pages"]
+    style SHARE fill:#ede7f6,stroke:#7c3aed,stroke-width:2px
+    S1([User opens /share or /preview page])
+    S2([Read file path, bucket, signed URL from query])
+    S3([Check Supabase credentials in localStorage])
+    S4([Validate link expiry])
+    S5([Download/display file if valid])
+    S6([Show error if invalid/expired])
+    Main11 --> S1
+    S1 --> S2 --> S3 --> S4
+    S4 -- valid --> S5
+    S4 -- expired/invalid --> S6
+  end
+
+  %% Logout
+  subgraph LOGOUT["Logout"]
+    style LOGOUT fill:#fbe9e7,stroke:#d84315,stroke-width:2px
+    L1([User clicks Logout])
+    L2([Call supabase.auth.signOut])
+    L3([Session cleared from state])
+    L4([Return to login screen])
+    Main2 --> L1
+    L1 --> L2 --> L3 --> L4
+    L4 -.-> Auth1
+  end
+```
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![React](https://img.shields.io/badge/React-18.2.0-blue) ![Supabase](https://img.shields.io/badge/Supabase-Storage-green)
 
 A modern cloud storage frontend using Supabase Storage.
