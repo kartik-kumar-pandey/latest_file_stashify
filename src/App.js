@@ -35,6 +35,20 @@ function AppContent() {
     }
   }, [supabase]);
 
+  // Auto-initialize Supabase from localStorage if config is present
+  useEffect(() => {
+    if (!supabase) {
+      const supabaseUrl = localStorage.getItem('supabaseUrl');
+      const supabaseAnonKey = localStorage.getItem('supabaseAnonKey');
+      const storedBucketName = localStorage.getItem('bucketName');
+      if (supabaseUrl && supabaseAnonKey && storedBucketName) {
+        const client = createSupabaseClient(supabaseUrl, supabaseAnonKey);
+        setSupabase(client);
+        setBucketName(storedBucketName);
+      }
+    }
+  }, [supabase]);
+
   useEffect(() => {
     if (darkMode) {
       document.body.classList.add('dark-mode');
