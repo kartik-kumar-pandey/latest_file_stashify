@@ -160,7 +160,7 @@ FileStashify is a React-based frontend application that provides a seamless inte
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/filestashify.git
+   git clone https://github.com/yourusername/file-stashify.git
    cd filestashify
    ```
 
