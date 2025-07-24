@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createSupabaseClient } from '../supabaseClient';
 
 function Initialization({ onInitialize }) {
@@ -6,6 +6,19 @@ function Initialization({ onInitialize }) {
   const [supabaseAnonKey, setSupabaseAnonKey] = React.useState(localStorage.getItem('supabaseAnonKey') || '');
   const [bucketName, setBucketName] = React.useState(localStorage.getItem('bucketName') || 'user-files');
   const [error, setError] = React.useState('');
+
+  // Cloudyfy (Cloudinary) state
+  const [cloudyfyModalOpen, setCloudyfyModalOpen] = useState(false);
+  const [cloudName, setCloudName] = useState(localStorage.getItem('cloudyfyCloudName') || '');
+  const [apiKey, setApiKey] = useState(localStorage.getItem('cloudyfyApiKey') || '');
+  const [apiSecret, setApiSecret] = useState(localStorage.getItem('cloudyfyApiSecret') || '');
+  const [uploadPreset, setUploadPreset] = useState(localStorage.getItem('cloudyfyUploadPreset') || '');
+  const [cloudyfyMsg, setCloudyfyMsg] = useState('');
+
+  // Add your test Supabase credentials here
+  const TEST_SUPABASE_URL = 'https://ihzkgmhwdjwvcagiexgs.supabase.co';
+  const TEST_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloemtnbWh3ZGp3dmNhZ2lleGdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3MzkxMDIsImV4cCI6MjA2ODMxNTEwMn0.HaO2OwONX9alvJak320RCbm_q7uxDX2gLAln3eRLSWE';
+  const TEST_BUCKET_NAME = 'demo';
 
   async function initializeSupabase() {
     setError('');
@@ -40,6 +53,18 @@ function Initialization({ onInitialize }) {
     onInitialize(client, bucketName);
   }
 
+  async function handleTestApp() {
+    setSupabaseUrl(TEST_SUPABASE_URL);
+    setSupabaseAnonKey(TEST_SUPABASE_ANON_KEY);
+    setBucketName(TEST_BUCKET_NAME);
+    // Save to localStorage and initialize immediately
+    localStorage.setItem('supabaseUrl', TEST_SUPABASE_URL);
+    localStorage.setItem('supabaseAnonKey', TEST_SUPABASE_ANON_KEY);
+    localStorage.setItem('bucketName', TEST_BUCKET_NAME);
+    const client = createSupabaseClient(TEST_SUPABASE_URL, TEST_SUPABASE_ANON_KEY);
+    onInitialize(client, TEST_BUCKET_NAME);
+  }
+
   return (
     <>
       <h1 className="init-title">
@@ -71,6 +96,9 @@ function Initialization({ onInitialize }) {
         />
         <button onClick={initializeSupabase} className="button">
           Initialize Supabase
+        </button>
+        <button onClick={handleTestApp} className="button" style={{ marginTop: 16, background: '#7c3aed', color: '#fff' }}>
+          Test the App
         </button>
       </div>
     </>

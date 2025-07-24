@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 
 function FileManager({ supabase, bucketName, onUserEmail, session, setSession }) {
   const [email, setEmail] = React.useState('');
@@ -11,7 +12,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [loading, setLoading] = React.useState(false);
   const [shareUrl, setShareUrl] = useState('');
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareFileName, setShareFileName] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [viewLoading, setViewLoading] = useState(false);
   const [viewModalOpen, setViewModalOpen] = useState(false);
@@ -40,6 +40,23 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [dragOverGrid, setDragOverGrid] = useState(false); // true if dragging over empty area
   const [draggedItem, setDraggedItem] = useState(null); // { type, name } if dragging from inside
   const [goBackDragOver, setGoBackDragOver] = useState(false); // for Go Back button drag-over
+  const [cloudyfyFiles, setCloudyfyFiles] = useState([]); // [{name, url, type}]
+  // Cloudyfy (Cloudinary) state
+  const [cloudyfyModalOpen, setCloudyfyModalOpen] = useState(false);
+  const [cloudName, setCloudName] = useState(localStorage.getItem('cloudyfyCloudName') || '');
+  const [uploadPreset, setUploadPreset] = useState(localStorage.getItem('cloudyfyUploadPreset') || '');
+  const [cloudyfyMsg, setCloudyfyMsg] = useState('');
+  // Add state for Cloudinary modals
+  const [cloudModal, setCloudModal] = useState({ type: null, file: null }); // type: 'delete' | 'rename' | 'move'
+  const [cloudModalValue, setCloudModalValue] = useState('');
+  // Add state for share modal
+  const [shareModalUrl, setShareModalUrl] = useState('');
+  const [shareModalCopied, setShareModalCopied] = useState(false); // false | true | 'manual'
+  // Add state for Cloudinary preview modal
+  const [cloudPreviewOpen, setCloudPreviewOpen] = useState(false);
+  const [cloudPreviewUrl, setCloudPreviewUrl] = useState('');
+  const [cloudPreviewType, setCloudPreviewType] = useState('');
+  const [cloudPreviewName, setCloudPreviewName] = useState('');
 
   React.useEffect(() => {
     if (!supabase) return;
@@ -120,25 +137,80 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setUploading(true);
     const folderPath = folder ? (folder.endsWith('/') ? folder : folder + '/') : '';
     let duplicateFound = false;
+    const newCloudyfyFiles = [];
     for (const file of filesToUpload) {
-    const filePath = folderPath + file.name;
-    const newName = file.name.trim().toLowerCase();
-    const duplicate = files.some(f => f.name && f.name.trim().toLowerCase() === newName);
-    if (duplicate) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      const isImage = ["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext);
+      const isVideo = ["mp4","webm","mov","avi","mkv","m4v"].includes(ext);
+      if (isImage || isVideo) {
+        // Cloudinary upload
+        const cloudName = localStorage.getItem('cloudyfyCloudName');
+        const uploadPreset = localStorage.getItem('cloudyfyUploadPreset');
+        if (!cloudName || !uploadPreset) {
+          setError('Cloudyfy (Cloudinary) not initialized.');
+          setErrorModalOpen(true);
+          setCloudyfyModalOpen(true);
+          continue;
+        }
+        const url = `https://api.cloudinary.com/v1_1/${cloudName}/${isImage ? 'image' : 'video'}/upload`;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', uploadPreset);
+        
+        try {
+          const res = await fetch(url, { method: 'POST', body: formData });
+          const data = await res.json();
+          if (data.secure_url) {
+            // Save metadata to Supabase
+            const { data: insertData, error: insertError } = await supabase
+              .from('cloudinary_files')
+              .insert([{
+                user_id: session?.user?.id || null,
+                name: file.name,
+                url: data.secure_url,
+                folder,
+                type: isImage ? 'image' : 'video'
+              }])
+              .select();
+            if (insertError) {
+              setError('Cloudyfy upload failed: ' + insertError.message);
+              setErrorModalOpen(true);
+              continue;
+            }
+            if (insertData && insertData.length > 0) {
+              newCloudyfyFiles.push({ ...insertData[0] });
+            } else {
+              newCloudyfyFiles.push({ name: file.name, url: data.secure_url, type: isImage ? 'image' : 'video', folder });
+            }
+          } else {
+            setError('Cloudyfy upload failed: ' + (data.error?.message || 'Unknown error'));
+            setErrorModalOpen(true);
+          }
+        } catch (err) {
+          setError('Cloudyfy upload error: ' + err.message);
+          setErrorModalOpen(true);
+        }
+        continue;
+      }
+      const filePath = folderPath + file.name;
+      const newName = file.name.trim().toLowerCase();
+      const duplicate = files.some(f => f.name && f.name.trim().toLowerCase() === newName);
+      if (duplicate) {
         setError(`A file named "${file.name}" already exists in this folder. Please rename or delete the existing file.`);
-      setErrorModalOpen(true);
+        setErrorModalOpen(true);
         duplicateFound = true;
         continue;
-    }
-    const { error } = await supabase.storage.from(bucketName).upload(filePath, file);
-    if (error) {
-      setError(error.message);
-      setErrorModalOpen(true);
+      }
+      const { error } = await supabase.storage.from(bucketName).upload(filePath, file);
+      if (error) {
+        setError(error.message);
+        setErrorModalOpen(true);
       }
     }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (!duplicateFound) await fetchFiles(session);
+    if (newCloudyfyFiles.length > 0) setCloudyfyFiles(prev => [...prev, ...newCloudyfyFiles]);
   }
 
   function handleFileInputChange(event) {
@@ -284,7 +356,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
 
   async function handleShare(fileName, expirySeconds) {
     setShareLoading(true);
-    setShareFileName(fileName);
     setShareUrl('');
     setShareModalOpen(true);
     setError('');
@@ -328,16 +399,14 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   }
 
   function openShareMenu(fileName) {
-    setShareFileName(fileName);
+    setShareUrl(''); 
     setShareModalOpen(true);
-    setShareUrl('');
     setError('');
   }
 
   function closeShareModal() {
     setShareModalOpen(false);
     setShareUrl('');
-    setShareFileName('');
     setShareLoading(false);
     setError('');
     setSharePassword('');
@@ -353,12 +422,10 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     }
     const filePath = (folder ? folder + '/' : '') + fileName;
     try {
-      // Fetch file content to prevent downloads
       const { data, error } = await supabase.storage.from(bucketName).download(filePath);
       if (error) {
         setError(error.message);
       } else {
-        // Create blob URL for secure viewing with proper MIME type
         const fileExtension = fileName.split('.').pop().toLowerCase();
         let mimeType = 'application/octet-stream';
         
@@ -384,7 +451,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
 
   function closeViewModal() {
     setViewModalOpen(false);
-    // Clean up blob URL to prevent memory leaks
     if (viewFileUrl && viewFileUrl.startsWith('blob:')) {
       URL.revokeObjectURL(viewFileUrl);
     }
@@ -397,7 +463,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setErrorModalOpen(false);
   }
 
-  // Helper to recursively list all folders
   async function listAllFolders(prefix = '', accum = []) {
     const { data, error } = await supabase.storage.from(bucketName).list(prefix, { limit: 1000 });
     if (error) return accum;
@@ -411,14 +476,12 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     return accum;
   }
 
-  // In useEffect, update allFolders when moveMode opens
   React.useEffect(() => {
     if (moveMode && supabase && session) {
       listAllFolders('', []).then(folders => setAllFolders(folders));
     }
   }, [moveMode, supabase, session]);
 
-  // Fetch thumbnails for images in the current folder
   useEffect(() => {
     async function fetchThumbnails() {
       if (!supabase || !session || !files) return;
@@ -439,12 +502,23 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       setThumbnails(newThumbs);
     }
     fetchThumbnails();
-    // Cleanup old blob URLs
     return () => {
       Object.values(thumbnails).forEach(url => URL.revokeObjectURL(url));
     };
-    // eslint-disable-next-line
   }, [files, supabase, session, folder, bucketName]);
+
+  useEffect(() => {
+    async function fetchCloudyfyFiles() {
+      if (!supabase || !session) return;
+      const { data, error } = await supabase
+        .from('cloudinary_files')
+        .select('*')
+        .eq('folder', folder)
+        .order('created_at', { ascending: false });
+      if (!error && data) setCloudyfyFiles(data);
+    }
+    fetchCloudyfyFiles();
+  }, [supabase, session, folder]);
 
   // 2. Helper: handle drop on folder
   async function handleDropOnFolder(folderName, event) {
@@ -540,10 +614,23 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setMoveDest(parentFolder);
   }
 
-  // JSX and other code remain unchanged...
+  // Prepare unified, sorted list for rendering (move this above return)
+  const folders = files.filter(f => f.id === null).map(f => ({ ...f, _type: 'folder' }));
+  const supabaseFiles = files.filter(f => f.id !== null).map(f => ({ ...f, _type: 'supabase' }));
+  const cloudFiles = cloudyfyFiles.filter(file => file.folder === folder).map(f => ({ ...f, _type: 'cloudinary' }));
+  const unifiedList = [
+    ...folders.sort((a, b) => a.name.localeCompare(b.name)),
+    ...[...supabaseFiles, ...cloudFiles].sort((a, b) => a.name.localeCompare(b.name))
+  ];
 
   return (
     <>
+      {/* Top bar actions */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="button" style={{ background: '#f7f8fa', color: '#23272f', border: '1.5px solid #bbb', fontWeight: 600 }} onClick={() => setCloudyfyModalOpen(true)}>
+          Cloudyfy Settings
+        </button>
+      </div>
       <div className="actions-row">
         <button
           onClick={goBackFolder}
@@ -586,160 +673,242 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         onDragLeave={e => { if (e.target === e.currentTarget) { e.preventDefault(); setDragOverGrid(false); } }}
         onDrop={e => { if (e.target === e.currentTarget) handleDropOnGrid(e); }}
       >
-        {files.length === 0 && (
+        {unifiedList.length === 0 && (
           <div style={{ gridColumn: '1/-1', textAlign: 'center', color: '#888', fontSize: '1.1em', padding: '40px 0' }}>
             No files or folders yet.
           </div>
         )}
-        {files.map((file) => {
-          const isFolder = file.id === null;
-          const ext = file.name.split('.').pop().toLowerCase();
-          return isFolder ? (
-          <div
-            key={file.name}
-              className={"folder-card" + (dragOverFolder === file.name ? " drag-over" : "")}
-            onClick={() => enterFolder(file.name)}
-            tabIndex={0}
-            title="Open folder"
-            draggable
-            onDragStart={e => {
-              setDraggedItem({ type: 'folder', name: file.name });
-              e.dataTransfer.effectAllowed = 'move';
-            }}
-            onDragEnd={() => setDraggedItem(null)}
-            onDragOver={e => { e.preventDefault(); setDragOverFolder(file.name); }}
-            onDragLeave={e => { e.preventDefault(); setDragOverFolder(null); }}
-            onDrop={e => handleDropOnFolder(file.name, e)}
-          >
-              <span className="folder-icon" role="img" aria-label="Folder">📁</span>
-              <span className="folder-name">{file.name}</span>
-              <div className="card-actions">
-            <button
-              className="card-action-btn"
-              title="Delete folder"
-              onClick={e => { e.stopPropagation(); deleteFile(file.name + '/'); }}
-            >
-              <span role="img" aria-label="Delete">🗑️</span>
-            </button>
-              <button
-                className="card-action-btn"
-                title="Rename folder"
-                onClick={e => {
-                  e.stopPropagation();
-                    setRenameFolderMode(true);
-                  setRenameFolderOldName(file.name);
-                  setRenameFolderNewName(file.name);
+        {unifiedList.map((item, idx) => {
+          if (item._type === 'folder') {
+            return (
+              <div
+                key={item.name}
+                className={"folder-card" + (dragOverFolder === item.name ? " drag-over" : "")}
+                onClick={() => enterFolder(item.name)}
+                tabIndex={0}
+                title="Open folder"
+                draggable
+                onDragStart={e => {
+                  setDraggedItem({ type: 'folder', name: item.name });
+                  e.dataTransfer.effectAllowed = 'move';
                 }}
+                onDragEnd={() => setDraggedItem(null)}
+                onDragOver={e => { e.preventDefault(); setDragOverFolder(item.name); }}
+                onDragLeave={e => { e.preventDefault(); setDragOverFolder(null); }}
+                onDrop={e => handleDropOnFolder(item.name, e)}
               >
-                <span role="img" aria-label="Rename">✏️</span>
-              </button>
-                <button
-                  className="card-action-btn"
-                  title="Move folder"
-                  onClick={e => {
-                    e.stopPropagation();
-                    setMoveMode(true);
-                    setMoveItem({ type: 'folder', name: file.name });
-                    setMoveDest('');
-                  }}
-                >
-                  <span role="img" aria-label="Move">📂</span>
-                </button>
+                <span className="folder-icon" role="img" aria-label="Folder">📁</span>
+                <span className="folder-name">{item.name}</span>
+                <div className="card-actions">
+                  <button
+                    className="card-action-btn"
+                    title="Delete folder"
+                    onClick={e => { e.stopPropagation(); deleteFile(item.name + '/'); }}
+                  >
+                    <span role="img" aria-label="Delete">🗑️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Rename folder"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setRenameFolderMode(true);
+                      setRenameFolderOldName(item.name);
+                      setRenameFolderNewName(item.name);
+                    }}
+                  >
+                    <span role="img" aria-label="Rename">✏️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Move folder"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMoveMode(true);
+                      setMoveItem({ type: 'folder', name: item.name });
+                      setMoveDest('');
+                    }}
+                  >
+                    <span role="img" aria-label="Move">📂</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div
-              key={file.name}
-              className="file-card"
-              tabIndex={0}
-              title="File"
-              draggable
-              onDragStart={e => {
-                setDraggedItem({ type: 'file', name: file.name });
-                e.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragEnd={() => setDraggedItem(null)}
-            >
-              {/* Thumbnail logic */}
-              {(["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext) && thumbnails[file.name]) ? (
-                <img src={thumbnails[file.name]} alt={file.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
-              ) : (["mp4","webm","mov","avi","mkv","m4v"].includes(ext)) ? (
-                <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
-              ) : (ext === 'pdf') ? (
-                <span className="file-icon" role="img" aria-label="PDF" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
-              ) : (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(ext)) ? (
-                <span className="file-icon" role="img" aria-label="Text" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
-              ) : (
-                <span className="file-icon" role="img" aria-label="File" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
-              )}
-              <span className="file-name">{file.name}</span>
-              <div className="card-actions">
-                <button
-                  className="card-action-btn"
-                  title="View file"
-                  onClick={async e => {
-                    e.stopPropagation();
-                    await viewFile(file.name);
-                  }}
-                >
-                  <span role="img" aria-label="View">👁️</span>
-                </button>
-                <button
-                  className="card-action-btn"
-                  title="Download file"
-                  onClick={async e => {
-                    e.stopPropagation();
-                    await downloadFile(file.name);
-                  }}
-                >
-                  <span role="img" aria-label="Download">⬇️</span>
-                </button>
-                <button
-                  className="card-action-btn"
-                  title="Share file"
-                  onClick={async e => {
-                    e.stopPropagation();
-                    setShareModalOpen(true);
-                    setShareFileName(file.name);
-                    setShareUrl('');
-                  }}
-                >
-                  <span role="img" aria-label="Share">🔗</span>
-                </button>
-                <button
-                  className="card-action-btn"
-                  title="Delete file"
-                  onClick={e => { e.stopPropagation(); deleteFile(file.name); }}
-                >
-                  <span role="img" aria-label="Delete">🗑️</span>
-                </button>
-                <button
-                  className="card-action-btn"
-                  title="Rename file"
-                  onClick={e => {
-                    e.stopPropagation();
-                    setRenameFileMode(true);
-                    setRenameFileOldName(file.name);
-                    setRenameFileNewName(file.name);
-                  }}
-                >
-                  <span role="img" aria-label="Rename">✏️</span>
-                </button>
-                <button
-                  className="card-action-btn"
-                  title="Move file"
-                  onClick={e => {
-                    e.stopPropagation();
-                    setMoveMode(true);
-                    setMoveItem({ type: 'file', name: file.name });
-                    setMoveDest('');
-                  }}
-                >
-                  <span role="img" aria-label="Move">📂</span>
-                </button>
+            );
+          } else if (item._type === 'supabase') {
+            const ext = item.name.split('.').pop().toLowerCase();
+            return (
+              <div
+                key={item.name}
+                className="file-card"
+                tabIndex={0}
+                title="File"
+                draggable
+                onDragStart={e => {
+                  setDraggedItem({ type: 'file', name: item.name });
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => setDraggedItem(null)}
+              >
+                {/* Thumbnail logic */}
+                {(["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext) && thumbnails[item.name]) ? (
+                  <img src={thumbnails[item.name]} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+                ) : (["mp4","webm","mov","avi","mkv","m4v"].includes(ext)) ? (
+                  <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                ) : (ext === 'pdf') ? (
+                  <span className="file-icon" role="img" aria-label="PDF" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                ) : (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(ext)) ? (
+                  <span className="file-icon" role="img" aria-label="Text" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                ) : (
+                  <span className="file-icon" role="img" aria-label="File" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                )}
+                <span className="file-name">{item.name}</span>
+                <div className="card-actions">
+                  {/* Supabase file action buttons as before */}
+                  <button
+                    className="card-action-btn"
+                    title="View file"
+                    onClick={async e => {
+                      e.stopPropagation();
+                      await viewFile(item.name);
+                    }}
+                  >
+                    <span role="img" aria-label="View">👁️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Download file"
+                    onClick={async e => {
+                      e.stopPropagation();
+                      await downloadFile(item.name);
+                    }}
+                  >
+                    <span role="img" aria-label="Download">⬇️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Share file"
+                    onClick={() => {
+                      setShareModalUrl(item.url);
+                      setShareModalOpen(true);
+                    }}
+                  >
+                    <span role="img" aria-label="Share">🔗</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Delete file"
+                    onClick={e => { e.stopPropagation(); deleteFile(item.name); }}
+                  >
+                    <span role="img" aria-label="Delete">🗑️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Rename file"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setRenameFileMode(true);
+                      setRenameFileOldName(item.name);
+                      setRenameFileNewName(item.name);
+                    }}
+                  >
+                    <span role="img" aria-label="Rename">✏️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Move file"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMoveMode(true);
+                      setMoveItem({ type: 'file', name: item.name });
+                      setMoveDest('');
+                    }}
+                  >
+                    <span role="img" aria-label="Move">📂</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          );
+            );
+          } else if (item._type === 'cloudinary') {
+            return (
+              <div key={item.url + idx} className="file-card" tabIndex={0} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)}>
+                {item.type === 'image' ? (
+                  <img src={item.url} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+                ) : (
+                  <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                )}
+                <span className="file-name">{item.name}</span>
+                <div className="card-actions" style={{ fontSize: 15, gap: 2, padding: '2px 0' }}>
+                  {/* Cloudinary file action buttons as before */}
+                  <a
+                    href="#"
+                    className="card-action-btn"
+                    title="View file"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={e => {
+                      e.preventDefault();
+                      setCloudPreviewUrl(item.url);
+                      setCloudPreviewType(item.type);
+                      setCloudPreviewName(item.name);
+                      setCloudPreviewOpen(true);
+                    }}
+                  >
+                    <span role="img" aria-label="View">👁️</span>
+                  </a>
+                  <a
+                    href={item.url}
+                    download={item.name}
+                    className="card-action-btn"
+                    title="Download file"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                  >
+                    <span role="img" aria-label="Download">⬇️</span>
+                  </a>
+                  <button
+                    className="card-action-btn"
+                    title="Share file"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={() => {
+                      setShareModalUrl(item.url);
+                      setShareModalOpen(true);
+                    }}
+                  >
+                    <span role="img" aria-label="Share">🔗</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Delete file (metadata only)"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={() => setCloudModal({ type: 'delete', file: item })}
+                  >
+                    <span role="img" aria-label="Delete">🗑️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Rename file (metadata only)"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={() => {
+                      setCloudModal({ type: 'rename', file: item });
+                      setCloudModalValue(item.name);
+                    }}
+                  >
+                    <span role="img" aria-label="Rename">✏️</span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Move file (metadata only)"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={() => {
+                      setCloudModal({ type: 'move', file: item });
+                      setCloudModalValue(item.folder);
+                    }}
+                  >
+                    <span role="img" aria-label="Move">📂</span>
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          return null;
         })}
       </div>
 
@@ -809,19 +978,19 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       {shareModalOpen && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }} onClick={closeShareModal}>
+        }} onClick={() => setShareModalOpen(false)}>
           <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 28, minWidth: 320, maxWidth: '90vw', position: 'relative' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0, marginBottom: 18 }}>Share "{shareFileName}"</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 18 }}>Share "{shareLoading ? '...' : shareUrl ? 'File' : 'File'}"</h3>
             <div style={{ marginBottom: 18 }}>
               <span style={{ fontWeight: 600 }}>Choose link expiry:</span>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 60*60)}>1 hr</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 60*60*5)}>5 hr</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 60*60*12)}>12 hr</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 60*60*24*7)}>1 week</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 60*60*24*30)}>1 month</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 60*60*24*365)}>1 year</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(shareFileName, 'lifetime')}>Lifetime</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60)}>1 hr</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*5)}>5 hr</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*12)}>12 hr</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*24*7)}>1 week</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*24*30)}>1 month</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*24*365)}>1 year</button>
+                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 'lifetime')}>Lifetime</button>
               </div>
             </div>
             <div style={{ marginBottom: 18 }}>
@@ -1180,6 +1349,205 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 setLoading(false);
               }}>Move</button>
             </div>
+          </div>
+        </div>
+      )}
+      {cloudyfyModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCloudyfyModalOpen(false)}>
+          <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 28, minWidth: 320, maxWidth: '90vw', position: 'relative' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Cloudyfy Settings</h2>
+            <div style={{ color: '#eab308', background: '#fef9c3', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 15, fontWeight: 500 }}>
+              <b>Note:</b> Only <b>unsigned upload presets</b> are supported for browser uploads. Set your upload preset to <b>unsigned</b> in your Cloudinary dashboard.
+            </div>
+            {cloudyfyMsg && <p style={{ color: '#22c55e', textAlign: 'center', marginBottom: 18 }}>{cloudyfyMsg}</p>}
+            <input
+              type="text"
+              placeholder="Cloud Name"
+              value={cloudName}
+              onChange={e => setCloudName(e.target.value)}
+              className="input-field"
+              style={{ marginBottom: 12 }}
+            />
+            <input
+              type="text"
+              placeholder="Upload Preset (must be unsigned)"
+              value={uploadPreset}
+              onChange={e => setUploadPreset(e.target.value)}
+              className="input-field"
+              style={{ marginBottom: 18 }}
+            />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginBottom: 10 }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudyfyModalOpen(false)}>Cancel</button>
+              <button className="button" onClick={() => {
+                localStorage.setItem('cloudyfyCloudName', cloudName);
+                localStorage.setItem('cloudyfyUploadPreset', uploadPreset);
+                setCloudyfyMsg('Cloudyfy credentials saved!');
+                setTimeout(() => { setCloudyfyModalOpen(false); setCloudyfyMsg(''); }, 1200);
+              }}>Save</button>
+              <button className="button" style={{ background: '#7c3aed', color: '#fff' }} onClick={() => {
+                setCloudName('dwfqdrdhp');
+                setUploadPreset('unsigned_images');
+              }}>Test Cloudyfy</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Cloudinary modals */}
+      {cloudModal.type === 'delete' && (
+        <div className="modal" onClick={() => setCloudModal({ type: null, file: null })}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Delete File</h3>
+            <div style={{ marginBottom: 16 }}>Are you sure you want to remove <b>{cloudModal.file?.name}</b> from your app? (File will remain in Cloudinary)</div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudModal({ type: null, file: null })}>Cancel</button>
+              <button className="button" style={{ background: '#ff5858', color: '#fff' }} onClick={async () => {
+                const { error } = await supabase
+                  .from('cloudinary_files')
+                  .delete()
+                  .eq('id', cloudModal.file.id);
+                if (!error) setCloudyfyFiles(prev => prev.filter(f => f.id !== cloudModal.file.id));
+                else setError('Failed to delete metadata: ' + error.message);
+                setCloudModal({ type: null, file: null });
+              }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {cloudModal.type === 'rename' && (
+        <div className="modal" onClick={() => setCloudModal({ type: null, file: null })}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Rename File</h3>
+            <input
+              type="text"
+              value={cloudModalValue}
+              onChange={e => setCloudModalValue(e.target.value)}
+              className="input-field"
+              style={{ width: '100%', marginBottom: 16 }}
+              autoFocus
+            />
+            {error && <div className="error" style={{ marginBottom: 10 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudModal({ type: null, file: null })}>Cancel</button>
+              <button className="button" onClick={async () => {
+                const newName = cloudModalValue.trim();
+                if (!newName) {
+                  setError('File name cannot be empty.');
+                  return;
+                }
+                if (newName === cloudModal.file.name) {
+                  setCloudModal({ type: null, file: null });
+                  return;
+                }
+                const { error } = await supabase
+                  .from('cloudinary_files')
+                  .update({ name: newName })
+                  .eq('id', cloudModal.file.id);
+                if (!error) setCloudyfyFiles(prev => prev.map(f => f.id === cloudModal.file.id ? { ...f, name: newName } : f));
+                else setError('Failed to rename: ' + error.message);
+                setCloudModal({ type: null, file: null });
+              }}>Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {cloudModal.type === 'move' && (
+        <div className="modal" onClick={() => setCloudModal({ type: null, file: null })}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Move File</h3>
+            <input
+              type="text"
+              value={cloudModalValue}
+              onChange={e => setCloudModalValue(e.target.value)}
+              className="input-field"
+              style={{ width: '100%', marginBottom: 16 }}
+              autoFocus
+            />
+            {error && <div className="error" style={{ marginBottom: 10 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudModal({ type: null, file: null })}>Cancel</button>
+              <button className="button" onClick={async () => {
+                const newFolder = cloudModalValue.trim();
+                if (!newFolder) {
+                  setError('Folder path cannot be empty.');
+                  return;
+                }
+                if (newFolder === cloudModal.file.folder) {
+                  setCloudModal({ type: null, file: null });
+                  return;
+                }
+                const { error } = await supabase
+                  .from('cloudinary_files')
+                  .update({ folder: newFolder })
+                  .eq('id', cloudModal.file.id);
+                if (!error) setCloudyfyFiles(prev => prev.map(f => f.id === cloudModal.file.id ? { ...f, folder: newFolder } : f));
+                else setError('Failed to move: ' + error.message);
+                setCloudModal({ type: null, file: null });
+              }}>Move</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Share Modal for both Supabase and Cloudinary files */}
+      {shareModalOpen && (
+        <div className="modal" onClick={() => { setShareModalOpen(false); setShareModalCopied(false); }}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Share File</h3>
+            <input
+              id="share-modal-input"
+              type="text"
+              value={shareModalUrl}
+              readOnly
+              className="input-field"
+              style={{ width: '100%', marginBottom: 16 }}
+              onFocus={e => e.target.select()}
+            />
+            {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>Copied!</div>}
+            {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>Press Ctrl+C to copy</div>}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => { setShareModalOpen(false); setShareModalCopied(false); }}>Close</button>
+              <button className="button" onClick={async () => {
+                let copied = false;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  try {
+                    await navigator.clipboard.writeText(shareModalUrl);
+                    copied = true;
+                  } catch {}
+                }
+                if (copied) {
+                  setShareModalCopied(true);
+                  setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); }, 900);
+                } else {
+                  // fallback: select the input and show a message
+                  const input = document.getElementById('share-modal-input');
+                  if (input) input.select();
+                  setShareModalCopied('manual');
+                }
+              }}>Copy Link</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Cloudinary Preview Modal */}
+      {cloudPreviewOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCloudPreviewOpen(false)}>
+          <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 18, minWidth: 320, maxWidth: 600, minHeight: 200, maxHeight: '80vh', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setCloudPreviewOpen(false)} style={{ position: 'absolute', top: 8, right: 12, background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} title="Close">✖</button>
+            <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 18, textAlign: 'center', width: '100%' }}>Preview: {cloudPreviewName}</h3>
+            {cloudPreviewType === 'image' ? (
+              <div style={{ textAlign: 'center', width: '100%' }}>
+                <img src={cloudPreviewUrl} alt={cloudPreviewName} style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+              </div>
+            ) : cloudPreviewType === 'video' ? (
+              <video controls style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8, background: '#000' }}>
+                <source src={cloudPreviewUrl} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            ) : (
+              <div style={{ margin: '24px 0', textAlign: 'center' }}>
+                <span style={{ color: '#888' }}>Preview not supported for this file type.</span><br />
+                <span style={{ color: '#666', fontSize: '14px' }}>This file is protected from download for security.</span>
+              </div>
+            )}
           </div>
         </div>
       )}
