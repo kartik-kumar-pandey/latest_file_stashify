@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { createSupabaseClient } from './supabaseClient';
 import './App.css';
 import Initialization from './components/Initialization';
@@ -19,6 +19,7 @@ function AppContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const location = useLocation();
+  const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   // Remove OTP-related state
 
@@ -58,6 +59,23 @@ function AppContent() {
     }
     localStorage.setItem('darkMode', darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    // If on root and hash contains access_token and type=recovery, redirect to /reset-password
+    if (
+      window.location.pathname === '/' &&
+      window.location.hash.includes('access_token') &&
+      window.location.hash.includes('type=recovery')
+    ) {
+      navigate('/reset-password' + window.location.hash, { replace: true });
+    }
+  }, [navigate]);
+
+  // Remove any logic that renders the file manager or redirects based on session if the path is /reset-password
+  if (window.location.pathname === '/reset-password') {
+    // Let the router render ResetPasswordPageWrapper
+    return null;
+  }
 
   function getSupabaseParams() {
     let params = new URLSearchParams(window.location.search);
@@ -281,12 +299,53 @@ function AppContent() {
   );
 }
 
+// Add a wrapper for the reset password route
+function ResetPasswordPageWrapper() {
+  // Parse from query string or hash
+  let params = new URLSearchParams(window.location.search);
+  let accessToken = params.get('access_token');
+  let type = params.get('type');
+  if (!accessToken || !type) {
+    if (window.location.hash && window.location.hash.startsWith('#')) {
+      let hash = window.location.hash.substring(1);
+      if (hash.startsWith('/')) hash = hash.substring(1);
+      params = new URLSearchParams(hash);
+      accessToken = params.get('access_token');
+      type = params.get('type');
+    }
+  }
+  // Move the log here, after accessToken and type are defined
+  console.log("Rendering ResetPasswordPageWrapper", { accessToken, type });
+
+  let tempSupabase = null;
+  try {
+    const supabaseUrl = localStorage.getItem('supabaseUrl');
+    const supabaseAnonKey = localStorage.getItem('supabaseAnonKey');
+    if (supabaseUrl && supabaseAnonKey) {
+      tempSupabase = createSupabaseClient(supabaseUrl, supabaseAnonKey);
+    }
+  } catch {}
+  return (
+    <>
+      <div className="topbar" style={{ position: 'fixed', top: 0, left: 0, width: '100%', zIndex: 100 }}>
+        <div className="topbar-content" style={{ justifyContent: 'center' }}>
+          <span className="app-title">FileStashify</span>
+        </div>
+      </div>
+      <div style={{ height: 72 }} />
+      <ResetPasswordPage supabase={tempSupabase} accessToken={accessToken} type={type} />
+    </>
+  );
+}
+
 export default function App() {
+  console.log("AppContent rendered, path:", window.location.pathname);
   return (
     <Router>
       <Routes>
         <Route path="/preview" element={<PreviewPage />} />
         <Route path="/share" element={<SharePage />} />
+        <Route path="/reset-password" element={<ResetPasswordPageWrapper />} />
         <Route path="*" element={<AppContent />} />
       </Routes>
     </Router>

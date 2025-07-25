@@ -57,6 +57,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [cloudPreviewUrl, setCloudPreviewUrl] = useState('');
   const [cloudPreviewType, setCloudPreviewType] = useState('');
   const [cloudPreviewName, setCloudPreviewName] = useState('');
+  const [supabaseDeleteModal, setSupabaseDeleteModal] = useState({ open: false, file: null });
 
   React.useEffect(() => {
     if (!supabase) return;
@@ -797,7 +798,10 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   <button
                     className="card-action-btn"
                     title="Delete file"
-                    onClick={e => { e.stopPropagation(); deleteFile(item.name); }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      setSupabaseDeleteModal({ open: true, file: item });
+                    }}
                   >
                     <span role="img" aria-label="Delete">🗑️</span>
                   </button>
@@ -1548,6 +1552,21 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 <span style={{ color: '#666', fontSize: '14px' }}>This file is protected from download for security.</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {supabaseDeleteModal.open && (
+        <div className="modal" onClick={() => setSupabaseDeleteModal({ open: false, file: null })}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Delete File</h3>
+            <div style={{ marginBottom: 16 }}>Are you sure you want to delete <b>{supabaseDeleteModal.file?.name}</b> from Supabase storage? This action cannot be undone.</div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setSupabaseDeleteModal({ open: false, file: null })}>Cancel</button>
+              <button className="button" style={{ background: '#ff5858', color: '#fff' }} onClick={async () => {
+                setSupabaseDeleteModal({ open: false, file: null });
+                await deleteFile(supabaseDeleteModal.file.name);
+              }}>Delete</button>
+            </div>
           </div>
         </div>
       )}

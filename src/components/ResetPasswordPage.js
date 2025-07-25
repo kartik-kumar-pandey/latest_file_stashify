@@ -10,6 +10,56 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(localStorage.getItem('supabaseAnonKey') || '');
   const [showCredsForm, setShowCredsForm] = useState(!initialSupabase);
 
+  // Fallback: allow user to paste the full link manually if token is missing
+  if (!accessToken || type !== 'recovery') {
+    const [manualLink, setManualLink] = useState('');
+    const [manualError, setManualError] = useState('');
+
+    function handleManualSubmit(e) {
+      e.preventDefault();
+      setManualError('');
+      try {
+        const url = new URL(manualLink);
+        let params = new URLSearchParams(url.hash ? url.hash.substring(1) : url.search);
+        const pastedToken = params.get('access_token');
+        const pastedType = params.get('type');
+        if (!pastedToken || pastedType !== 'recovery') {
+          setManualError('Invalid link: missing token or type.');
+          return;
+        }
+        // Reload page with correct hash
+        window.location.hash = `access_token=${pastedToken}&type=${pastedType}`;
+        window.location.reload();
+      } catch {
+        setManualError('Please paste a valid reset password link.');
+      }
+    }
+
+    return (
+      <div className="login-card">
+        <h2>Reset Password</h2>
+        <p className="error">Invalid or missing password reset token.</p>
+        <div style={{ margin: '18px 0', color: '#555', fontSize: 15 }}>
+          If you do not see the password reset form, please paste the full reset link from your email below:
+        </div>
+        <form onSubmit={handleManualSubmit}>
+          <input
+            type="text"
+            placeholder="Paste your reset password link here"
+            value={manualLink}
+            onChange={e => setManualLink(e.target.value)}
+            className="input-field"
+            style={{ width: '100%', marginBottom: 8 }}
+          />
+          <button type="submit" className="button" style={{ marginTop: 0, width: '100%' }}>
+            Use This Link
+          </button>
+        </form>
+        {manualError && <p className="error" style={{ marginTop: 8 }}>{manualError}</p>}
+      </div>
+    );
+  }
+
   function handleCredsSubmit(e) {
     e.preventDefault();
     setError('');
@@ -47,15 +97,6 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
     } else {
       setMessage('Password updated! You can now sign in with your new password.');
     }
-  }
-
-  if (!accessToken || type !== 'recovery') {
-    return (
-      <div className="login-card">
-        <h2>Reset Password</h2>
-        <p className="error">Invalid or missing password reset token.</p>
-      </div>
-    );
   }
 
   if (showCredsForm) {
