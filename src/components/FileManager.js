@@ -1583,6 +1583,29 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           </div>
         </div>
       )}
+      {cloudPreviewOpen && (
+        <div className="modal" onClick={() => setCloudPreviewOpen(false)}>
+          <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 18, minWidth: 320, maxWidth: 600, minHeight: 200, maxHeight: '80vh', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setCloudPreviewOpen(false)} style={{ position: 'absolute', top: 8, right: 12, background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} title="Close">✖</button>
+            <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 18, textAlign: 'center', width: '100%' }}>Preview: {cloudPreviewName}</h3>
+            {cloudPreviewType === 'image' ? (
+              <div style={{ textAlign: 'center', width: '100%' }}>
+                <img src={cloudPreviewUrl} alt={cloudPreviewName} style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+              </div>
+            ) : cloudPreviewType === 'video' ? (
+              <video controls style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8, background: '#000' }}>
+                <source src={cloudPreviewUrl} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            ) : (
+              <div style={{ margin: '24px 0', textAlign: 'center' }}>
+                <span style={{ color: '#888' }}>Preview not supported for this file type.</span><br />
+                <span style={{ color: '#666', fontSize: '14px' }}>This file is protected from download for security.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
