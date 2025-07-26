@@ -8,8 +8,11 @@ import FileManager from './components/FileManager';
 import ResetPasswordPage from './components/ResetPasswordPage';
 import SharePage from './components/SharePage';
 import PreviewPage from './components/PreviewPage';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import ToastTest from './ToastTest';
 
-function AppContent() {
+function AppContent({ darkMode, setDarkMode }) {
   const [supabase, setSupabase] = useState(null);
   const [bucketName, setBucketName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -20,7 +23,7 @@ function AppContent() {
   const [password, setPassword] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  // Remove: const [darkMode, setDarkMode] = useState(false);
   // Remove OTP-related state
 
   useEffect(() => {
@@ -57,7 +60,7 @@ function AppContent() {
     } else {
       document.body.classList.remove('dark-mode');
     }
-    localStorage.setItem('darkMode', darkMode);
+    // Remove localStorage.setItem('darkMode', darkMode);
   }, [darkMode]);
 
   useEffect(() => {
@@ -107,11 +110,13 @@ function AppContent() {
     setError('');
     if (!supabase) {
       setError('Supabase client not initialized.');
+      toast.error('Supabase client not initialized.');
       return;
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError(error.message);
+      toast.error(error.message);
     }
   }
 
@@ -119,13 +124,15 @@ function AppContent() {
     setError('');
     if (!supabase) {
       setError('Supabase client not initialized.');
+      toast.error('❌ Supabase client not initialized.');
       return;
     }
     const { error } = await supabase.auth.signUp({ email, password });
     if (error) {
       setError(error.message);
+      toast.error('❌ ' + error.message);
     } else {
-      alert('Check your email for the confirmation link.');
+      toast.success('✅ Check your email for the confirmation link!');
     }
   }
 
@@ -133,13 +140,15 @@ function AppContent() {
     setError('');
     if (!email) {
       setError('Please enter your email to reset password.');
+      toast.error('⚠️ Please enter your email to reset password.');
       return;
     }
     const { error } = await supabase.auth.resetPasswordForEmail(email);
     if (error) {
       setError(error.message);
+      toast.error('❌ ' + error.message);
     } else {
-      alert('Password reset email sent! Check your inbox.');
+      toast.info('📧 Password reset email sent! Check your inbox.');
     }
   }
 
@@ -339,14 +348,19 @@ function ResetPasswordPageWrapper() {
 }
 
 export default function App() {
+  const [darkMode, setDarkMode] = React.useState(false);
+  useEffect(() => {
+    // toast.info('Test toast from AppContent!'); // This line is removed
+  }, []);
   console.log("AppContent rendered, path:", window.location.pathname);
   return (
     <Router>
+      <ToastContainer position="top-center" autoClose={4000} theme={darkMode ? 'dark' : 'light'} />
       <Routes>
         <Route path="/preview" element={<PreviewPage />} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/reset-password" element={<ResetPasswordPageWrapper />} />
-        <Route path="*" element={<AppContent />} />
+        <Route path="*" element={<AppContent darkMode={darkMode} setDarkMode={setDarkMode} />} />
       </Routes>
     </Router>
   );

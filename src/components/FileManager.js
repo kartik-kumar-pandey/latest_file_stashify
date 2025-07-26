@@ -58,6 +58,8 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [cloudPreviewType, setCloudPreviewType] = useState('');
   const [cloudPreviewName, setCloudPreviewName] = useState('');
   const [supabaseDeleteModal, setSupabaseDeleteModal] = useState({ open: false, file: null });
+  const [cloudFolders, setCloudFolders] = useState([]);
+  const [shareModalType, setShareModalType] = useState(null); // 'supabase' | 'cloudinary' | null
 
   React.useEffect(() => {
     if (!supabase) return;
@@ -407,6 +409,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
 
   function closeShareModal() {
     setShareModalOpen(false);
+    setShareModalType(null);
     setShareUrl('');
     setShareLoading(false);
     setError('');
@@ -624,15 +627,33 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     ...[...supabaseFiles, ...cloudFiles].sort((a, b) => a.name.localeCompare(b.name))
   ];
 
+  useEffect(() => {
+    if (cloudModal.type === 'move') {
+      (async () => {
+        const { data, error } = await supabase
+          .from('cloudinary_files')
+          .select('folder');
+        if (!error && data) {
+          // Extract all parent folders from each folder path
+          const allFolders = new Set();
+          data.forEach(f => {
+            if (f.folder) {
+              const parts = f.folder.split('/').filter(Boolean);
+              for (let i = 1; i <= parts.length; i++) {
+                allFolders.add(parts.slice(0, i).join('/'));
+              }
+            }
+          });
+          setCloudFolders(Array.from(allFolders));
+        }
+      })();
+    }
+  }, [cloudModal, supabase]);
+
   return (
     <>
-      {/* Top bar actions */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button className="button" style={{ background: '#f7f8fa', color: '#23272f', border: '1.5px solid #bbb', fontWeight: 600 }} onClick={() => setCloudyfyModalOpen(true)}>
-          Cloudyfy Settings
-        </button>
-      </div>
-      <div className="actions-row">
+     
+      <div className="actions-row" style={{ display: 'flex', alignItems: 'center' }}>
         <button
           onClick={goBackFolder}
           className={"go-back-icon-btn" + (goBackDragOver ? " drag-over" : "")}
@@ -666,6 +687,17 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         >
           Create Folder
         </button>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            className="button"
+            style={{ marginLeft: 10, display: 'flex', alignItems: 'center', gap: 6 }}
+            title="Cloudyfy Settings"
+            onClick={() => setCloudyfyModalOpen(true)}
+          >
+            <span role="img" aria-label="Settings">⚙️</span> Cloudyfy Settings
+          </button>
+        </div>
       </div>
 
       <div
@@ -789,7 +821,8 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                     className="card-action-btn"
                     title="Share file"
                     onClick={() => {
-                      setShareModalUrl(item.url);
+                      setViewFileName(item.name);
+                      setShareModalType('supabase');
                       setShareModalOpen(true);
                     }}
                   >
@@ -870,9 +903,9 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   <button
                     className="card-action-btn"
                     title="Share file"
-                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
                     onClick={() => {
                       setShareModalUrl(item.url);
+                      setShareModalType('cloudinary');
                       setShareModalOpen(true);
                     }}
                   >
@@ -979,10 +1012,10 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         </div>
       )}
 
-      {shareModalOpen && (
+      {shareModalOpen && shareModalType === 'supabase' && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }} onClick={() => setShareModalOpen(false)}>
+        }} onClick={closeShareModal}>
           <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 28, minWidth: 320, maxWidth: '90vw', position: 'relative' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0, marginBottom: 18 }}>Share "{shareLoading ? '...' : shareUrl ? 'File' : 'File'}"</h3>
             <div style={{ marginBottom: 18 }}>
@@ -1017,6 +1050,45 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
             )}
             {error && <div className="error" style={{ marginBottom: 10 }}>{error}</div>}
             <button className="button" style={{ background: '#eee', color: '#333', marginTop: 8 }} onClick={closeShareModal}>Close</button>
+          </div>
+        </div>
+      )}
+      {shareModalOpen && shareModalType === 'cloudinary' && (
+        <div className="modal" onClick={() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Share File</h3>
+            <input
+              id="share-modal-input"
+              type="text"
+              value={shareModalUrl}
+              readOnly
+              className="input-field"
+              style={{ width: '100%', marginBottom: 16 }}
+              onFocus={e => e.target.select()}
+            />
+            {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>Copied!</div>}
+            {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>Press Ctrl+C to copy</div>}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }}>Close</button>
+              <button className="button" onClick={async () => {
+                let copied = false;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  try {
+                    await navigator.clipboard.writeText(shareModalUrl);
+                    copied = true;
+                  } catch {}
+                }
+                if (copied) {
+                  setShareModalCopied(true);
+                  setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
+                } else {
+                  // fallback: select the input and show a message
+                  const input = document.getElementById('share-modal-input');
+                  if (input) input.select();
+                  setShareModalCopied('manual');
+                }
+              }}>Copy Link</button>
+            </div>
           </div>
         </div>
       )}
@@ -1360,7 +1432,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCloudyfyModalOpen(false)}>
           <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 28, minWidth: 320, maxWidth: '90vw', position: 'relative' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>Cloudyfy Settings</h2>
-            <div style={{ color: '#eab308', background: '#fef9c3', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 15, fontWeight: 500 }}>
+            <div className="cloudyfy-note">
               <b>Note:</b> Only <b>unsigned upload presets</b> are supported for browser uploads. Set your upload preset to <b>unsigned</b> in your Cloudinary dashboard.
             </div>
             {cloudyfyMsg && <p style={{ color: '#22c55e', textAlign: 'center', marginBottom: 18 }}>{cloudyfyMsg}</p>}
@@ -1458,14 +1530,19 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         <div className="modal" onClick={() => setCloudModal({ type: null, file: null })}>
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Move File</h3>
-            <input
-              type="text"
+            <label style={{ fontWeight: 600 }}>Destination Folder:</label>
+            <select
               value={cloudModalValue}
               onChange={e => setCloudModalValue(e.target.value)}
               className="input-field"
               style={{ width: '100%', marginBottom: 16 }}
               autoFocus
-            />
+            >
+              <option value="">/ (root)</option>
+              {cloudFolders.map(folder => (
+                <option key={folder} value={folder}>{folder}</option>
+              ))}
+            </select>
             {error && <div className="error" style={{ marginBottom: 10 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudModal({ type: null, file: null })}>Cancel</button>
@@ -1488,70 +1565,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 setCloudModal({ type: null, file: null });
               }}>Move</button>
             </div>
-          </div>
-        </div>
-      )}
-      {/* Share Modal for both Supabase and Cloudinary files */}
-      {shareModalOpen && (
-        <div className="modal" onClick={() => { setShareModalOpen(false); setShareModalCopied(false); }}>
-          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Share File</h3>
-            <input
-              id="share-modal-input"
-              type="text"
-              value={shareModalUrl}
-              readOnly
-              className="input-field"
-              style={{ width: '100%', marginBottom: 16 }}
-              onFocus={e => e.target.select()}
-            />
-            {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>Copied!</div>}
-            {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>Press Ctrl+C to copy</div>}
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => { setShareModalOpen(false); setShareModalCopied(false); }}>Close</button>
-              <button className="button" onClick={async () => {
-                let copied = false;
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                  try {
-                    await navigator.clipboard.writeText(shareModalUrl);
-                    copied = true;
-                  } catch {}
-                }
-                if (copied) {
-                  setShareModalCopied(true);
-                  setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); }, 900);
-                } else {
-                  // fallback: select the input and show a message
-                  const input = document.getElementById('share-modal-input');
-                  if (input) input.select();
-                  setShareModalCopied('manual');
-                }
-              }}>Copy Link</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Cloudinary Preview Modal */}
-      {cloudPreviewOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCloudPreviewOpen(false)}>
-          <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 18, minWidth: 320, maxWidth: 600, minHeight: 200, maxHeight: '80vh', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setCloudPreviewOpen(false)} style={{ position: 'absolute', top: 8, right: 12, background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#888' }} title="Close">✖</button>
-            <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 18, textAlign: 'center', width: '100%' }}>Preview: {cloudPreviewName}</h3>
-            {cloudPreviewType === 'image' ? (
-              <div style={{ textAlign: 'center', width: '100%' }}>
-                <img src={cloudPreviewUrl} alt={cloudPreviewName} style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-              </div>
-            ) : cloudPreviewType === 'video' ? (
-              <video controls style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8, background: '#000' }}>
-                <source src={cloudPreviewUrl} type="video/mp4" />
-                Your browser does not support the video tag.
-              </video>
-            ) : (
-              <div style={{ margin: '24px 0', textAlign: 'center' }}>
-                <span style={{ color: '#888' }}>Preview not supported for this file type.</span><br />
-                <span style={{ color: '#666', fontSize: '14px' }}>This file is protected from download for security.</span>
-              </div>
-            )}
           </div>
         </div>
       )}
