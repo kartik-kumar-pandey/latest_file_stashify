@@ -78,7 +78,8 @@
     - Cloudinary images/videos are previewed directly from their secure URL.
   - **Share Files:**
     - User can generate a shareable link for a file.
-    - The app creates a signed URL using Supabase (for Supabase files) or uses the Cloudinary URL (for Cloudinary files).
+    - The app creates a signed URL using Supabase (for Supabase files) or generates an expiring URL for Cloudinary files.
+    - For Cloudinary files, users can set expiration times (1 hour, 1 day, 1 week, 1 month, 1 year, or no expiration).
     - The share modal provides a "Copy Link" button with clipboard and fallback support.
   - **Guide Button:**
     - A help/guide button is available for user assistance.

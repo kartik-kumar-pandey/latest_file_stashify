@@ -61,6 +61,8 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [cloudFolders, setCloudFolders] = useState([]);
   const [shareModalType, setShareModalType] = useState(null); // 'supabase' | 'cloudinary' | null
 
+  const [shareExpiry, setShareExpiry] = useState(3600); // 1 hour default for Supabase
+
   React.useEffect(() => {
     if (!supabase) return;
 
@@ -360,7 +362,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   async function handleShare(fileName, expirySeconds) {
     setShareLoading(true);
     setShareUrl('');
-    setShareModalOpen(true);
     setError('');
     if (!supabase || !session) {
       setError('Please sign in first.');
@@ -405,6 +406,9 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setShareUrl(''); 
     setShareModalOpen(true);
     setError('');
+    setShareExpiry(3600); // Set default expiry
+    // Generate the initial URL with default expiry
+    handleShare(fileName, 3600);
   }
 
   function closeShareModal() {
@@ -414,6 +418,8 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setShareLoading(false);
     setError('');
     setSharePassword('');
+
+    setShareExpiry(3600); // Reset to default
   }
 
   async function viewFile(fileName) {
@@ -650,6 +656,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     }
   }, [cloudModal, supabase]);
 
+    // Add this function after the existing functions
+
+
+
+
   return (
     <>
      
@@ -823,7 +834,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                     onClick={() => {
                       setViewFileName(item.name);
                       setShareModalType('supabase');
-                      setShareModalOpen(true);
+                      openShareMenu(item.name);
                     }}
                   >
                     <span role="img" aria-label="Share">🔗</span>
@@ -1013,43 +1024,154 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       )}
 
       {shareModalOpen && shareModalType === 'supabase' && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }} onClick={closeShareModal}>
-          <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 28, minWidth: 320, maxWidth: '90vw', position: 'relative' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0, marginBottom: 18 }}>Share "{shareLoading ? '...' : shareUrl ? 'File' : 'File'}"</h3>
-            <div style={{ marginBottom: 18 }}>
-              <span style={{ fontWeight: 600 }}>Choose link expiry:</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60)}>1 hr</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*5)}>5 hr</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*12)}>12 hr</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*24*7)}>1 week</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*24*30)}>1 month</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 60*60*24*365)}>1 year</button>
-                <button className="button" style={{ padding: '6px 12px', fontSize: 14 }} onClick={() => handleShare(viewFileName, 'lifetime')}>Lifetime</button>
-              </div>
+        <div className="modal" onClick={() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Share File</h3>
+            
+            {/* Expiration Options */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Link Expiration:</label>
+              <select 
+                value={shareExpiry || 3600} 
+                onChange={(e) => {
+                  const expiry = e.target.value === 'lifetime' ? 'lifetime' : parseInt(e.target.value);
+                  setShareExpiry(expiry);
+                  handleShare(viewFileName, expiry);
+                }}
+                className="input-field"
+                style={{ width: '100%' }}
+              >
+                <option value={3600}>1 Hour</option>
+                <option value={86400}>1 Day</option>
+                <option value={604800}>1 Week</option>
+                <option value={2592000}>1 Month</option>
+                <option value={31536000}>1 Year</option>
+                <option value="lifetime">Lifetime</option>
+              </select>
             </div>
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ fontWeight: 600 }}>Password (optional):</label>
+            
+            {shareExpiry && shareExpiry !== 'lifetime' && (
+              <div style={{ 
+                fontSize: '12px', 
+                color: '#666', 
+                marginBottom: 16, 
+                padding: '8px 12px', 
+                background: '#f0f8ff', 
+                borderRadius: '6px',
+                border: '1px solid #e1f0ff'
+              }}>
+                ⏰ Link will expire in {shareExpiry === 3600 ? '1 hour' : 
+                  shareExpiry === 86400 ? '1 day' : 
+                  shareExpiry === 604800 ? '1 week' : 
+                  shareExpiry === 2592000 ? '1 month' : 
+                  shareExpiry === 31536000 ? '1 year' : 
+                  `${Math.round(shareExpiry / 3600)} hours`}
+                <br />
+                📅 Expires at: {new Date(Date.now() + shareExpiry * 1000).toLocaleString()}
+              </div>
+            )}
+            
+            {shareExpiry === 'lifetime' && (
+              <div style={{ 
+                fontSize: '12px', 
+                color: '#22c55e', 
+                marginBottom: 16, 
+                padding: '8px 12px', 
+                background: '#f0fdf4', 
+                borderRadius: '6px',
+                border: '1px solid #bbf7d0'
+              }}>
+                ✅ Link has no expiration and will work indefinitely
+              </div>
+            )}
+            
+            {/* Password Field */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Password Protection (Optional):</label>
               <input
                 type="password"
                 className="input-field"
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="Set a password for this share (optional)"
+                style={{ width: '100%' }}
+                placeholder="Enter password to protect this link"
                 value={sharePassword}
-                onChange={e => setSharePassword(e.target.value)}
+                onChange={e => {
+                  setSharePassword(e.target.value);
+                  // Regenerate URL with new password
+                  if (viewFileName) {
+                    handleShare(viewFileName, shareExpiry);
+                  }
+                }}
               />
+              {sharePassword && (
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: '#22c55e', 
+                  marginTop: 8, 
+                  padding: '6px 10px', 
+                  background: '#f0fdf4', 
+                  borderRadius: '4px',
+                  border: '1px solid #bbf7d0'
+                }}>
+                  🔒 Link will be password protected
+                </div>
+              )}
             </div>
-            {shareLoading && <div style={{ color: '#4f8cff', marginBottom: 10 }}>Generating link...</div>}
-            {shareUrl && (
-              <div style={{ marginBottom: 10 }}>
-                <input type="text" value={shareUrl} readOnly style={{ width: '100%', padding: 8, borderRadius: 6, border: '1.5px solid #e0e4ea', fontSize: 14 }} onFocus={e => e.target.select()} />
-                <button className="button" style={{ marginTop: 8, width: '100%' }} onClick={() => {navigator.clipboard.writeText(shareUrl)}}>Copy Link</button>
+            
+            {shareLoading && (
+              <div style={{ 
+                color: '#4f8cff', 
+                marginBottom: 16, 
+                textAlign: 'center',
+                padding: '12px',
+                background: '#f0f8ff',
+                borderRadius: '6px',
+                border: '1px solid #e1f0ff'
+              }}>
+                ⏳ Generating secure link...
               </div>
             )}
-            {error && <div className="error" style={{ marginBottom: 10 }}>{error}</div>}
-            <button className="button" style={{ background: '#eee', color: '#333', marginTop: 8 }} onClick={closeShareModal}>Close</button>
+            
+            {shareUrl && (
+              <div style={{ marginBottom: 16 }}>
+                <input
+                  id="supabase-share-input"
+                  type="text"
+                  value={shareUrl}
+                  readOnly
+                  className="input-field"
+                  style={{ width: '100%', marginBottom: 8 }}
+                  onFocus={e => e.target.select()}
+                />
+                {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>Copied!</div>}
+                {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>Press Ctrl+C to copy</div>}
+              </div>
+            )}
+            
+            {error && <div className="error" style={{ marginBottom: 16 }}>{error}</div>}
+            
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={closeShareModal}>Close</button>
+              {shareUrl && (
+                <button className="button" onClick={async () => {
+                  let copied = false;
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    try {
+                      await navigator.clipboard.writeText(shareUrl);
+                      copied = true;
+                    } catch {}
+                  }
+                  if (copied) {
+                    setShareModalCopied(true);
+                    setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
+                  } else {
+                    // fallback: select the input and show a message
+                    const input = document.getElementById('supabase-share-input');
+                    if (input) input.select();
+                    setShareModalCopied('manual');
+                  }
+                }}>Copy Link</button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1057,6 +1179,19 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         <div className="modal" onClick={() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }}>
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Share File</h3>
+            
+            <div style={{ 
+              fontSize: '14px', 
+              color: '#666', 
+              marginBottom: 16, 
+              padding: '12px', 
+              background: '#f8f9fa', 
+              borderRadius: '6px',
+              border: '1px solid #e9ecef'
+            }}>
+              📎 Share this link with others
+            </div>
+            
             <input
               id="share-modal-input"
               type="text"
@@ -1066,8 +1201,10 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
               style={{ width: '100%', marginBottom: 16 }}
               onFocus={e => e.target.select()}
             />
-            {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>Copied!</div>}
-            {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>Press Ctrl+C to copy</div>}
+            
+            {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>✅ Copied to clipboard!</div>}
+            {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>📋 Press Ctrl+C to copy</div>}
+            
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }}>Close</button>
               <button className="button" onClick={async () => {
@@ -1432,7 +1569,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCloudyfyModalOpen(false)}>
           <div className="modal-content" style={{ borderRadius: 14, boxShadow: '0 4px 32px rgba(60,72,88,0.18)', padding: 28, minWidth: 320, maxWidth: '90vw', position: 'relative' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>Cloudyfy Settings</h2>
-            <div className="cloudyfy-note">
+            <div className="cloudyfy-note" style={{ marginBottom: 20 }}>
               <b>Note:</b> Only <b>unsigned upload presets</b> are supported for browser uploads. Set your upload preset to <b>unsigned</b> in your Cloudinary dashboard.
             </div>
             {cloudyfyMsg && <p style={{ color: '#22c55e', textAlign: 'center', marginBottom: 18 }}>{cloudyfyMsg}</p>}
@@ -1464,6 +1601,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 setCloudName('dwfqdrdhp');
                 setUploadPreset('unsigned_images');
               }}>Test Cloudyfy</button>
+
             </div>
           </div>
         </div>
