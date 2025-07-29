@@ -10,7 +10,6 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(localStorage.getItem('supabaseAnonKey') || '');
   const [showCredsForm, setShowCredsForm] = useState(!initialSupabase);
 
-  // Fallback: allow user to paste the full link manually if token is missing
   if (!accessToken || type !== 'recovery') {
     const [manualLink, setManualLink] = useState('');
     const [manualError, setManualError] = useState('');
@@ -27,7 +26,6 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
           setManualError('Invalid link: missing token or type.');
           return;
         }
-        // Reload page with correct hash
         window.location.hash = `access_token=${pastedToken}&type=${pastedType}`;
         window.location.reload();
       } catch {

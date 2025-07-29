@@ -7,10 +7,9 @@ import GuideButtonWithGuide from './components/GuideButtonWithGuide';
 import FileManager from './components/FileManager';
 import ResetPasswordPage from './components/ResetPasswordPage';
 import SharePage from './components/SharePage';
-import PreviewPage from './components/PreviewPage';
+
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import ToastTest from './ToastTest';
 
 function AppContent({ darkMode, setDarkMode }) {
   const [supabase, setSupabase] = useState(null);
@@ -23,8 +22,6 @@ function AppContent({ darkMode, setDarkMode }) {
   const [password, setPassword] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
-  // Remove: const [darkMode, setDarkMode] = useState(false);
-  // Remove OTP-related state
 
   useEffect(() => {
     if (supabase) {
@@ -40,7 +37,6 @@ function AppContent({ darkMode, setDarkMode }) {
     }
   }, [supabase]);
 
-  // Auto-initialize Supabase from localStorage if config is present
   useEffect(() => {
     if (!supabase) {
       const supabaseUrl = localStorage.getItem('supabaseUrl');
@@ -60,11 +56,9 @@ function AppContent({ darkMode, setDarkMode }) {
     } else {
       document.body.classList.remove('dark-mode');
     }
-    // Remove localStorage.setItem('darkMode', darkMode);
   }, [darkMode]);
 
   useEffect(() => {
-    // If on root and hash contains access_token and type=recovery, redirect to /reset-password
     if (
       window.location.pathname === '/' &&
       window.location.hash.includes('access_token') &&
@@ -74,9 +68,7 @@ function AppContent({ darkMode, setDarkMode }) {
     }
   }, [navigate]);
 
-  // Remove any logic that renders the file manager or redirects based on session if the path is /reset-password
   if (window.location.pathname === '/reset-password') {
-    // Let the router render ResetPasswordPageWrapper
     return null;
   }
 
@@ -152,11 +144,7 @@ function AppContent({ darkMode, setDarkMode }) {
     }
   }
 
-  // Remove sendOtp and verifyOtp functions
 
-  if (location.pathname === '/share') {
-    return <SharePage />;
-  }
 
   if (type === 'recovery' && accessToken) {
     let tempSupabase = null;
@@ -308,9 +296,7 @@ function AppContent({ darkMode, setDarkMode }) {
   );
 }
 
-// Add a wrapper for the reset password route
 function ResetPasswordPageWrapper() {
-  // Parse from query string or hash
   let params = new URLSearchParams(window.location.search);
   let accessToken = params.get('access_token');
   let type = params.get('type');
@@ -323,7 +309,6 @@ function ResetPasswordPageWrapper() {
       type = params.get('type');
     }
   }
-  // Move the log here, after accessToken and type are defined
   console.log("Rendering ResetPasswordPageWrapper", { accessToken, type });
 
   let tempSupabase = null;
@@ -350,14 +335,12 @@ function ResetPasswordPageWrapper() {
 export default function App() {
   const [darkMode, setDarkMode] = React.useState(false);
   useEffect(() => {
-    // toast.info('Test toast from AppContent!'); // This line is removed
   }, []);
   console.log("AppContent rendered, path:", window.location.pathname);
   return (
     <Router>
       <ToastContainer position="top-center" autoClose={4000} theme={darkMode ? 'dark' : 'light'} />
       <Routes>
-        <Route path="/preview" element={<PreviewPage />} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/reset-password" element={<ResetPasswordPageWrapper />} />
         <Route path="*" element={<AppContent darkMode={darkMode} setDarkMode={setDarkMode} />} />

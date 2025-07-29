@@ -1,110 +1,147 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { useNavigate } from 'react-router-dom';
 
 function SharePage() {
-  const [fileUrl, setFileUrl] = useState('');
-  const [fileName, setFileName] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [expired, setExpired] = useState(false);
   const [textContent, setTextContent] = useState('');
-  const [noCredentials, setNoCredentials] = useState(false);
+  const [fileUrl, setFileUrl] = useState('');
+  const [fileType, setFileType] = useState('');
+  const [fileExtension, setFileExtension] = useState('');
+  const [fileName, setFileName] = useState('');
   const prevBlobUrl = useRef('');
-  const navigate = useNavigate ? useNavigate() : () => {};
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const filePath = decodeURIComponent(urlParams.get('file') || '');
-    const bucketName = urlParams.get('bucket');
-    const expiresParam = urlParams.get('expires');
-    const createdParam = urlParams.get('created');
+    const signedUrl = urlParams.get('url');
+    const name = urlParams.get('name');
     
-    // Check for Supabase credentials in localStorage
-    const supabaseUrl = localStorage.getItem('supabaseUrl');
-    const supabaseKey = localStorage.getItem('supabaseAnonKey');
-    if (!supabaseUrl || !supabaseKey) {
-      setNoCredentials(true);
+    if (!signedUrl) {
+      setError('Invalid share link - missing file URL');
       setLoading(false);
       return;
     }
 
-    if (!filePath || !bucketName) {
-      setError('Invalid share link');
-      setLoading(false);
-      return;
-    }
-
-    // Check if link has expired
-    if (expiresParam && expiresParam !== 'lifetime' && createdParam) {
-      const createdAt = parseInt(createdParam);
-      const expiresIn = parseInt(expiresParam);
-      const currentTime = Math.floor(Date.now() / 1000);
-      const expiresAt = createdAt + expiresIn;
-      if (currentTime > expiresAt) {
-        setExpired(true);
-        setLoading(false);
-        return;
-      }
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true
-      }
-    });
+    setFileUrl(signedUrl);
+    setFileName(name || 'Shared File');
     
-    async function loadFile() {
-      try {
-        setLoading(true);
-        setError('');
-        setTextContent('');
-        setFileUrl('');
-        const { data, error } = await supabase.storage.from(bucketName).download(filePath);
-        if (error) {
-          setError(`File not found or access denied: ${error.message}`);
-          setLoading(false);
-          return;
+    let ext = '';
+    if (name && name.includes('.')) {
+      ext = name.split('.').pop().toLowerCase();
+    } else {
+      ext = signedUrl.split('.').pop().split('?')[0].toLowerCase();
+      
+      if (signedUrl.includes('cloudinary.com')) {
+        const urlParts = signedUrl.split('/');
+        const lastPart = urlParts[urlParts.length - 1];
+        if (lastPart && lastPart.includes('.')) {
+          ext = lastPart.split('.').pop().toLowerCase();
         }
-        const fileExtension = filePath.split('/').pop().split('.').pop().toLowerCase();
-        setFileName(filePath.split('/').pop());
-        const blob = new Blob([await data.arrayBuffer()], {
-          type:
-            fileExtension === 'pdf' ? 'application/pdf' :
-            ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'].includes(fileExtension) ? `image/${fileExtension === 'jpg' ? 'jpeg' : fileExtension}` :
-            ['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'].includes(fileExtension) ? `video/${fileExtension === 'm4v' ? 'mp4' : fileExtension}` :
-            ['txt', 'md', 'csv', 'json', 'js', 'ts', 'css', 'html', 'xml', 'log'].includes(fileExtension) ? 'text/plain' :
-            'application/octet-stream'
-        });
-        if (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(fileExtension)) {
-          // Text: use FileReader
-          const reader = new FileReader();
-          reader.onload = (e) => setTextContent(e.target.result);
-          reader.readAsText(blob, 'UTF-8');
-        } else {
-          // PDF, images, video, etc: use blob URL
-          const blobUrl = URL.createObjectURL(blob);
-          if (prevBlobUrl.current) {
-            URL.revokeObjectURL(prevBlobUrl.current);
-          }
-          prevBlobUrl.current = blobUrl;
-          setFileUrl(blobUrl);
-        }
-      } catch (err) {
-        setError('Error loading file');
       }
-      setLoading(false);
     }
+    
+    setFileExtension(ext);
+    setFileType(getFileType(ext));
+    
 
-    loadFile();
-    // Clean up blob URL on unmount
+    setLoading(false);
+    
     return () => {
       if (prevBlobUrl.current && prevBlobUrl.current.startsWith('blob:')) {
         URL.revokeObjectURL(prevBlobUrl.current);
       }
     };
   }, []);
+
+  function getFileType(ext) {
+    if (["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext)) return "image";
+    if (["pdf"].includes(ext)) return "pdf";
+    if (["mp4","webm","mov","avi","mkv","m4v"].includes(ext)) return "video";
+    if (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(ext)) return "text";
+    return "other";
+  }
+
+  if (fileUrl) {
+    if (fileType === "image") {
+      return (
+        <div style={{ textAlign: 'center', padding: 32 }}>
+          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
+          <img src={fileUrl} alt="Preview" style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
+            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
+            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+          </div>
+        </div>
+      );
+    }
+    if (fileType === "pdf") {
+      return (
+        <div style={{ width: '100%', height: '80vh', padding: 32 }}>
+          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
+          <div style={{ width: '100%', height: 'calc(100% - 60px)', border: '1px solid #e9ecef', borderRadius: 8, overflow: 'hidden', background: '#f8f9fa' }}>
+            <iframe
+              src={`${fileUrl}#toolbar=1&navpanes=1&scrollbar=1`}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              title="PDF Preview"
+            />
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
+            <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#4f8cff', color: 'white' }}>Open in New Tab</a>
+            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+          </div>
+          <div style={{ marginTop: 12, textAlign: 'center', fontSize: '14px', color: '#666' }}>
+            💡 If the PDF doesn't display, try the "Open in New Tab" button
+          </div>
+        </div>
+      );
+    }
+    if (fileType === "video") {
+      return (
+        <div style={{ textAlign: 'center', padding: 32 }}>
+          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
+          <video controls style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 8, background: '#000' }}>
+            <source src={fileUrl} type={`video/${fileExtension === 'm4v' ? 'mp4' : fileExtension}`}/>
+            Your browser does not support the video tag.
+          </video>
+          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
+            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
+            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+          </div>
+        </div>
+      );
+    }
+    if (fileType === "text") {
+      useEffect(() => {
+        fetch(fileUrl)
+          .then(res => res.text())
+          .then(setTextContent)
+          .catch(() => setTextContent('Error loading file.'));
+      }, [fileUrl]);
+      
+      return (
+        <div style={{ padding: 24, maxWidth: '1200px', margin: '0 auto' }}>
+          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
+          <div style={{ background: '#f7f8fa', borderRadius: 8, minHeight: 400, fontFamily: 'monospace', fontSize: 15, color: '#23272f', whiteSpace: 'pre-wrap', wordBreak: 'break-word', padding: 16, border: '1px solid #e9ecef' }}>
+            {textContent || 'Loading...'}
+          </div>
+          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
+            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
+            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ textAlign: 'center', padding: 32 }}>
+        <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
+        <p style={{ marginBottom: 24, color: '#666' }}>Preview not supported for this file type.</p>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
+          <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download File</a>
+          <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -126,49 +163,6 @@ function SharePage() {
     );
   }
 
-  if (noCredentials) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f8f9fa',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
-      }}>
-        <div style={{ textAlign: 'center', maxWidth: '400px', padding: '32px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
-          <h1 style={{ color: '#333', marginBottom: '16px' }}>Private File</h1>
-          <p style={{ color: '#666', lineHeight: '1.5' }}>
-            To view this file inline, please initialize the app with the correct Supabase credentials.<br />
-            <button className="button" style={{ marginTop: 18 }} onClick={() => window.location.href = '/'}>Go to Initialization</button>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (expired) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f8f9fa',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
-      }}>
-        <div style={{ textAlign: 'center', maxWidth: '400px', padding: '32px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
-          <h1 style={{ color: '#333', marginBottom: '16px' }}>Link Expired</h1>
-          <p style={{ color: '#666', lineHeight: '1.5' }}>
-            This shared link has expired. Please contact the file owner for a new link.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div style={{
@@ -183,110 +177,13 @@ function SharePage() {
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>❌</div>
           <h1 style={{ color: '#333', marginBottom: '16px' }}>Error</h1>
           <p style={{ color: '#666', lineHeight: '1.5' }}>{error}</p>
+          <button className="button" style={{ marginTop: 24, background: '#eee', color: '#333' }} onClick={() => window.history.back()}>Go Back</button>
         </div>
       </div>
     );
   }
 
-  const fileExtension = fileName.split('.').pop().toLowerCase();
-
-  return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#f8f9fa',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto',
-        background: '#fff',
-        borderRadius: '12px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-        overflow: 'hidden'
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '20px 24px',
-          borderBottom: '1px solid #e0e4ea',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '20px', color: '#333' }}>Shared File</h1>
-            <p style={{ margin: '4px 0 0 0', color: '#666', fontSize: '14px' }}>{fileName}</p>
-          </div>
-          <div style={{
-            background: '#f8f9fa',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            fontSize: '12px',
-            color: '#666',
-            border: '1px solid #e0e4ea'
-          }}>
-            🔒 Secure View Only
-          </div>
-        </div>
-
-        {/* File Preview */}
-        <div style={{ padding: '24px', minHeight: '400px' }}>
-          {(() => {
-            if (["png","jpg","jpeg","gif","bmp","webp","svg"].includes(fileExtension)) {
-              return (
-                <div style={{ textAlign: 'center' }}>
-                  <img 
-                    src={fileUrl} 
-                    alt={fileName} 
-                    style={{ 
-                      maxWidth: '100%', 
-                      maxHeight: '70vh', 
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
-                    }}
-                  />
-                </div>
-              );
-            }
-            if (fileExtension === 'pdf') {
-              return (
-                <div style={{ width: '100%', height: '80vh' }}>
-                  <embed
-                    src={fileUrl}
-                    type="application/pdf"
-                    style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8 }}
-                  />
-                </div>
-              );
-            }
-            if (["mp4","webm","mov","avi","mkv","m4v"].includes(fileExtension)) {
-              return (
-                <div style={{ textAlign: 'center' }}>
-                  <video controls style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, background: '#000' }}>
-                    <source src={fileUrl} type={`video/${fileExtension === 'm4v' ? 'mp4' : fileExtension}`}/>
-                    Your browser does not support the video tag.
-                  </video>
-                </div>
-              );
-            }
-            if (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(fileExtension)) {
-              return (
-                <div style={{ padding: 24, background: '#f7f8fa', borderRadius: 8, minHeight: 200, fontFamily: 'monospace', fontSize: 15, color: '#23272f', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {textContent}
-                </div>
-              );
-            }
-            return (
-              <div style={{ textAlign: 'center', padding: 32 }}>
-                <p>Preview not supported for this file type.</p>
-                <a href={fileUrl} download={fileName} className="button" style={{ marginTop: 18, display: 'inline-block' }}>Download File</a>
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 export default SharePage; 

@@ -1,9 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { v4 as uuidv4 } from 'uuid';
 
 function FileManager({ supabase, bucketName, onUserEmail, session, setSession }) {
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
   const [files, setFiles] = React.useState([]);
   const [uploading, setUploading] = React.useState(false);
   const [folder, setFolder] = React.useState('');
@@ -19,8 +16,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [viewFileName, setViewFileName] = useState('');
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const fileInputRef = useRef();
-  const [showSignUp, setShowSignUp] = React.useState(false);
-  // Add state for folder rename
   const [renameFileMode, setRenameFileMode] = useState(false);
   const [renameFileOldName, setRenameFileOldName] = useState('');
   const [renameFileNewName, setRenameFileNewName] = useState('');
@@ -30,38 +25,30 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const renameInputRef = useRef();
   const [dragActive, setDragActive] = useState(false);
   const [moveMode, setMoveMode] = useState(false);
-  const [moveItem, setMoveItem] = useState(null); // { type: 'file'|'folder', name: string }
+  const [moveItem, setMoveItem] = useState(null);
   const [moveDest, setMoveDest] = useState('');
   const [allFolders, setAllFolders] = useState([]);
-  const [sharePassword, setSharePassword] = useState('');
-  const [thumbnails, setThumbnails] = useState({}); // { fileName: blobUrl }
-  // 1. Add new state for drag-and-drop
-  const [dragOverFolder, setDragOverFolder] = useState(null); // name of folder being dragged over
-  const [dragOverGrid, setDragOverGrid] = useState(false); // true if dragging over empty area
-  const [draggedItem, setDraggedItem] = useState(null); // { type, name } if dragging from inside
-  const [goBackDragOver, setGoBackDragOver] = useState(false); // for Go Back button drag-over
-  const [cloudyfyFiles, setCloudyfyFiles] = useState([]); // [{name, url, type}]
-  // Cloudyfy (Cloudinary) state
+  const [thumbnails, setThumbnails] = useState({});
+  const [dragOverFolder, setDragOverFolder] = useState(null);
+  const [dragOverGrid, setDragOverGrid] = useState(false);
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [goBackDragOver, setGoBackDragOver] = useState(false);
+  const [cloudyfyFiles, setCloudyfyFiles] = useState([]);
   const [cloudyfyModalOpen, setCloudyfyModalOpen] = useState(false);
   const [cloudName, setCloudName] = useState(localStorage.getItem('cloudyfyCloudName') || '');
   const [uploadPreset, setUploadPreset] = useState(localStorage.getItem('cloudyfyUploadPreset') || '');
   const [cloudyfyMsg, setCloudyfyMsg] = useState('');
-  // Add state for Cloudinary modals
-  const [cloudModal, setCloudModal] = useState({ type: null, file: null }); // type: 'delete' | 'rename' | 'move'
+  const [cloudModal, setCloudModal] = useState({ type: null, file: null });
   const [cloudModalValue, setCloudModalValue] = useState('');
-  // Add state for share modal
   const [shareModalUrl, setShareModalUrl] = useState('');
-  const [shareModalCopied, setShareModalCopied] = useState(false); // false | true | 'manual'
-  // Add state for Cloudinary preview modal
+  const [shareModalCopied, setShareModalCopied] = useState(false);
   const [cloudPreviewOpen, setCloudPreviewOpen] = useState(false);
   const [cloudPreviewUrl, setCloudPreviewUrl] = useState('');
   const [cloudPreviewType, setCloudPreviewType] = useState('');
   const [cloudPreviewName, setCloudPreviewName] = useState('');
   const [supabaseDeleteModal, setSupabaseDeleteModal] = useState({ open: false, file: null });
-  const [cloudFolders, setCloudFolders] = useState([]);
-  const [shareModalType, setShareModalType] = useState(null); // 'supabase' | 'cloudinary' | null
 
-  const [shareExpiry, setShareExpiry] = useState(3600); // 1 hour default for Supabase
+  const [shareModalType, setShareModalType] = useState(null);
 
   React.useEffect(() => {
     if (!supabase) return;
@@ -370,45 +357,33 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     }
     const filePath = (folder ? folder + '/' : '') + fileName;
     let expiresIn = expirySeconds;
-    if (expirySeconds === 'lifetime') expiresIn = 60 * 60 * 24 * 365 * 10; // 10 years
+    if (expirySeconds === 'lifetime') expiresIn = 60 * 60 * 24 * 365 * 10;
     try {
-      // Generate a signed URL for the file
       const { data, error } = await supabase.storage.from(bucketName).createSignedUrl(filePath, expiresIn);
       if (error) {
         setError(error.message);
         setShareUrl('');
-      } else {
-        // Determine file extension
-        const ext = fileName.split('.').pop().toLowerCase();
-        const videoExts = ["mp4","webm","mov","avi","mkv","m4v"];
-        if (videoExts.includes(ext)) {
-          // For video, use direct signed URL
-        setShareUrl(data.signedUrl);
-        } else {
-          // For others, use preview page
-          const currentDomain = window.location.origin;
-          let previewUrl = `${currentDomain}/preview?url=${encodeURIComponent(data.signedUrl)}`;
-          if (sharePassword) {
-            previewUrl += `&pw=1`;
-            // TODO: Store password hash and link info in Supabase table
-          }
-          setShareUrl(previewUrl);
-        }
+        setShareLoading(false);
+        return;
       }
+      const currentDomain = window.location.origin;
+      const encodedUrl = encodeURIComponent(data.signedUrl);
+      const encodedName = encodeURIComponent(fileName);
+      setShareUrl(`${currentDomain}/share?url=${encodedUrl}&name=${encodedName}`);
+      setShareLoading(false);
     } catch (err) {
       setError('Error generating share link');
       setShareUrl('');
+      setShareLoading(false);
     }
-    setShareLoading(false);
   }
 
   function openShareMenu(fileName) {
-    setShareUrl(''); 
+    setShareUrl('');
     setShareModalOpen(true);
     setError('');
-    setShareExpiry(3600); // Set default expiry
-    // Generate the initial URL with default expiry
-    handleShare(fileName, 3600);
+    setViewFileName(fileName);
+    setShareModalType('supabase');
   }
 
   function closeShareModal() {
@@ -417,9 +392,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setShareUrl('');
     setShareLoading(false);
     setError('');
-    setSharePassword('');
-
-    setShareExpiry(3600); // Reset to default
   }
 
   async function viewFile(fileName) {
@@ -530,15 +502,12 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     fetchCloudyfyFiles();
   }, [supabase, session, folder]);
 
-  // 2. Helper: handle drop on folder
   async function handleDropOnFolder(folderName, event) {
     event.preventDefault();
     setDragOverFolder(null);
     setDragOverGrid(false);
-    // If dragging from inside the app (move)
     if (draggedItem) {
       if (draggedItem.type === 'file' || draggedItem.type === 'folder') {
-        // Don't allow moving into self or subfolder
         if (draggedItem.type === 'folder' && folder + draggedItem.name === folder + folderName) return;
         setMoveMode(true);
         setMoveItem(draggedItem);
@@ -547,19 +516,16 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         return;
       }
     }
-    // If dragging from outside (upload)
     if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
       const filesToUpload = Array.from(event.dataTransfer.files);
       const targetFolder = folder ? (folder.endsWith('/') ? folder : folder + '/') + folderName : folderName;
       await uploadFilesToTarget(filesToUpload, targetFolder);
     }
   }
-  // 3. Helper: handle drop on grid (empty area)
   async function handleDropOnGrid(event) {
     event.preventDefault();
     setDragOverGrid(false);
     setDragOverFolder(null);
-    // If dragging from inside the app (move)
     if (draggedItem) {
       if (draggedItem.type === 'file' || draggedItem.type === 'folder') {
         setMoveMode(true);
@@ -569,13 +535,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         return;
       }
     }
-    // If dragging from outside (upload)
     if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
       const filesToUpload = Array.from(event.dataTransfer.files);
       await uploadFilesToTarget(filesToUpload, folder);
     }
   }
-  // 4. Helper: upload files to a specific folder
   async function uploadFilesToTarget(filesToUpload, targetFolder) {
     setError('');
     setErrorModalOpen(false);
@@ -588,7 +552,61 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setUploading(true);
     const folderPath = targetFolder ? (targetFolder.endsWith('/') ? targetFolder : targetFolder + '/') : '';
     let duplicateFound = false;
+    const newCloudyfyFiles = [];
     for (const file of filesToUpload) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      const isImage = ["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext);
+      const isVideo = ["mp4","webm","mov","avi","mkv","m4v"].includes(ext);
+      if (isImage || isVideo) {
+        // Cloudinary upload
+        const cloudName = localStorage.getItem('cloudyfyCloudName');
+        const uploadPreset = localStorage.getItem('cloudyfyUploadPreset');
+        if (!cloudName || !uploadPreset) {
+          setError('Cloudyfy (Cloudinary) not initialized.');
+          setErrorModalOpen(true);
+          setCloudyfyModalOpen(true);
+          continue;
+        }
+        const url = `https://api.cloudinary.com/v1_1/${cloudName}/${isImage ? 'image' : 'video'}/upload`;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', uploadPreset);
+        
+        try {
+          const res = await fetch(url, { method: 'POST', body: formData });
+          const data = await res.json();
+          if (data.secure_url) {
+            // Save metadata to Supabase
+            const { data: insertData, error: insertError } = await supabase
+              .from('cloudinary_files')
+              .insert([{
+                user_id: session?.user?.id || null,
+                name: file.name,
+                url: data.secure_url,
+                folder: targetFolder,
+                type: isImage ? 'image' : 'video'
+              }])
+              .select();
+            if (insertError) {
+              setError('Cloudyfy upload failed: ' + insertError.message);
+              setErrorModalOpen(true);
+              continue;
+            }
+            if (insertData && insertData.length > 0) {
+              newCloudyfyFiles.push({ ...insertData[0] });
+            } else {
+              newCloudyfyFiles.push({ name: file.name, url: data.secure_url, type: isImage ? 'image' : 'video', folder: targetFolder });
+            }
+          } else {
+            setError('Cloudyfy upload failed: ' + (data.error?.message || 'Unknown error'));
+            setErrorModalOpen(true);
+          }
+        } catch (err) {
+          setError('Cloudyfy upload error: ' + err.message);
+          setErrorModalOpen(true);
+        }
+        continue;
+      }
       const filePath = folderPath + file.name;
       const newName = file.name.trim().toLowerCase();
       const duplicate = files.some(f => f.name && f.name.trim().toLowerCase() === newName);
@@ -607,16 +625,15 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (!duplicateFound) await fetchFiles(session);
+    if (newCloudyfyFiles.length > 0) setCloudyfyFiles(prev => [...prev, ...newCloudyfyFiles]);
   }
 
-  // Helper: handle drop on Go Back button
   async function handleDropOnGoBack(event) {
     event.preventDefault();
     setGoBackDragOver(false);
     setDraggedItem(null);
     if (!draggedItem) return;
-    // Compute parent folder
-    if (!folder) return; // already at root
+    if (!folder) return;
     const parts = folder.split('/').filter(Boolean);
     const parentFolder = parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : '';
     setMoveMode(true);
@@ -624,7 +641,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     setMoveDest(parentFolder);
   }
 
-  // Prepare unified, sorted list for rendering (move this above return)
   const folders = files.filter(f => f.id === null).map(f => ({ ...f, _type: 'folder' }));
   const supabaseFiles = files.filter(f => f.id !== null).map(f => ({ ...f, _type: 'supabase' }));
   const cloudFiles = cloudyfyFiles.filter(file => file.folder === folder).map(f => ({ ...f, _type: 'cloudinary' }));
@@ -633,30 +649,8 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     ...[...supabaseFiles, ...cloudFiles].sort((a, b) => a.name.localeCompare(b.name))
   ];
 
-  useEffect(() => {
-    if (cloudModal.type === 'move') {
-      (async () => {
-        const { data, error } = await supabase
-          .from('cloudinary_files')
-          .select('folder');
-        if (!error && data) {
-          // Extract all parent folders from each folder path
-          const allFolders = new Set();
-          data.forEach(f => {
-            if (f.folder) {
-              const parts = f.folder.split('/').filter(Boolean);
-              for (let i = 1; i <= parts.length; i++) {
-                allFolders.add(parts.slice(0, i).join('/'));
-              }
-            }
-          });
-          setCloudFolders(Array.from(allFolders));
-        }
-      })();
-    }
-  }, [cloudModal, supabase]);
 
-    // Add this function after the existing functions
+
 
 
 
@@ -669,16 +663,56 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           onClick={goBackFolder}
           className={"go-back-icon-btn" + (goBackDragOver ? " drag-over" : "")}
           title="Go back to parent folder"
-          style={{ marginRight: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          style={{ 
+            marginRight: '10px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '6px',
+            padding: '8px 12px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+            transition: 'all 0.3s ease',
+            cursor: 'pointer',
+            position: 'relative',
+            overflow: 'hidden',
+            minWidth: 'fit-content',
+            whiteSpace: 'nowrap'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.transform = 'translateY(-2px)';
+            e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.4)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.transform = 'translateY(0)';
+            e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+          }}
           onDragOver={e => { e.preventDefault(); setGoBackDragOver(true); }}
           onDragLeave={e => { e.preventDefault(); setGoBackDragOver(false); }}
           onDrop={handleDropOnGoBack}
         >
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <circle cx="11" cy="11" r="11" />
-            <path d="M13.5 7L9.5 11L13.5 15" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: '-100%',
+            width: '100%',
+            height: '100%',
+            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)',
+            transition: 'left 0.5s ease'
+          }} className="shimmer-effect" />
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>
+            <path d="M19 12H5M12 19L5 12L12 5" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <span style={{ color: '#7c3aed', fontWeight: 600, fontSize: '15px', letterSpacing: '0.5px' }}>Go Back</span>
+          <span style={{ 
+            color: 'white', 
+            fontWeight: '600', 
+            fontSize: '14px', 
+            letterSpacing: '0.3px',
+            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+            position: 'relative',
+            zIndex: 1
+          }}>Go Back</span>
         </button>
         <input
           ref={fileInputRef}
@@ -915,7 +949,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                     className="card-action-btn"
                     title="Share file"
                     onClick={() => {
-                      setShareModalUrl(item.url);
+                      const currentDomain = window.location.origin;
+                      const encodedUrl = encodeURIComponent(item.url);
+                      const encodedName = encodeURIComponent(item.name);
+                      const shareLink = `${currentDomain}/share?url=${encodedUrl}&name=${encodedName}`;
+                      setShareModalUrl(shareLink);
                       setShareModalType('cloudinary');
                       setShareModalOpen(true);
                     }}
@@ -941,17 +979,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   >
                     <span role="img" aria-label="Rename">✏️</span>
                   </button>
-                  <button
-                    className="card-action-btn"
-                    title="Move file (metadata only)"
-                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
-                    onClick={() => {
-                      setCloudModal({ type: 'move', file: item });
-                      setCloudModalValue(item.folder);
-                    }}
-                  >
-                    <span role="img" aria-label="Move">📂</span>
-                  </button>
+
                 </div>
               </div>
             );
@@ -1028,111 +1056,31 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Share File</h3>
             
-            {/* Expiration Options */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Link Expiration:</label>
-              <select 
-                value={shareExpiry || 3600} 
-                onChange={(e) => {
-                  const expiry = e.target.value === 'lifetime' ? 'lifetime' : parseInt(e.target.value);
-                  setShareExpiry(expiry);
-                  handleShare(viewFileName, expiry);
-                }}
-                className="input-field"
-                style={{ width: '100%' }}
-              >
-                <option value={3600}>1 Hour</option>
-                <option value={86400}>1 Day</option>
-                <option value={604800}>1 Week</option>
-                <option value={2592000}>1 Month</option>
-                <option value={31536000}>1 Year</option>
-                <option value="lifetime">Lifetime</option>
-              </select>
+            <div style={{ 
+              fontSize: '14px', 
+              color: '#666', 
+              marginBottom: 16, 
+              padding: '12px', 
+              background: '#f8f9fa', 
+              borderRadius: '6px',
+              border: '1px solid #e9ecef'
+            }}>
+              📎 Generate a shareable link for this file
             </div>
             
-            {shareExpiry && shareExpiry !== 'lifetime' && (
-              <div style={{ 
-                fontSize: '12px', 
-                color: '#666', 
-                marginBottom: 16, 
-                padding: '8px 12px', 
-                background: '#f0f8ff', 
-                borderRadius: '6px',
-                border: '1px solid #e1f0ff'
-              }}>
-                ⏰ Link will expire in {shareExpiry === 3600 ? '1 hour' : 
-                  shareExpiry === 86400 ? '1 day' : 
-                  shareExpiry === 604800 ? '1 week' : 
-                  shareExpiry === 2592000 ? '1 month' : 
-                  shareExpiry === 31536000 ? '1 year' : 
-                  `${Math.round(shareExpiry / 3600)} hours`}
-                <br />
-                📅 Expires at: {new Date(Date.now() + shareExpiry * 1000).toLocaleString()}
-              </div>
-            )}
-            
-            {shareExpiry === 'lifetime' && (
-              <div style={{ 
-                fontSize: '12px', 
-                color: '#22c55e', 
-                marginBottom: 16, 
-                padding: '8px 12px', 
-                background: '#f0fdf4', 
-                borderRadius: '6px',
-                border: '1px solid #bbf7d0'
-              }}>
-                ✅ Link has no expiration and will work indefinitely
-              </div>
-            )}
-            
-            {/* Password Field */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Password Protection (Optional):</label>
-              <input
-                type="password"
-                className="input-field"
-                style={{ width: '100%' }}
-                placeholder="Enter password to protect this link"
-                value={sharePassword}
-                onChange={e => {
-                  setSharePassword(e.target.value);
-                  // Regenerate URL with new password
-                  if (viewFileName) {
-                    handleShare(viewFileName, shareExpiry);
-                  }
-                }}
-              />
-              {sharePassword && (
-                <div style={{ 
-                  fontSize: '12px', 
-                  color: '#22c55e', 
-                  marginTop: 8, 
-                  padding: '6px 10px', 
-                  background: '#f0fdf4', 
-                  borderRadius: '4px',
-                  border: '1px solid #bbf7d0'
-                }}>
-                  🔒 Link will be password protected
-                </div>
-              )}
+            {/* Generate Link and Cancel Buttons */}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginBottom: shareUrl ? 16 : 0 }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={closeShareModal}>Cancel</button>
+              <button className="button" onClick={async () => {
+                setShareLoading(true);
+                await handleShare(viewFileName, 3600);
+                setShareLoading(false);
+              }}>Generate Link</button>
             </div>
             
-            {shareLoading && (
-              <div style={{ 
-                color: '#4f8cff', 
-                marginBottom: 16, 
-                textAlign: 'center',
-                padding: '12px',
-                background: '#f0f8ff',
-                borderRadius: '6px',
-                border: '1px solid #e1f0ff'
-              }}>
-                ⏳ Generating secure link...
-              </div>
-            )}
-            
+            {/* Show link only after generation */}
             {shareUrl && (
-              <div style={{ marginBottom: 16 }}>
+              <div style={{ marginTop: 16 }}>
                 <input
                   id="supabase-share-input"
                   type="text"
@@ -1142,36 +1090,47 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   style={{ width: '100%', marginBottom: 8 }}
                   onFocus={e => e.target.select()}
                 />
-                {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>Copied!</div>}
-                {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>Press Ctrl+C to copy</div>}
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                  <button className="button" onClick={async () => {
+                    try {
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(shareUrl);
+                        setShareModalCopied(true);
+                        setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
+                        return;
+                      }
+                    } catch (err) {
+                      console.log('Modern clipboard API failed, trying fallback');
+                    }
+                    
+                    try {
+                      const input = document.getElementById('supabase-share-input');
+                      if (input) {
+                        input.select();
+                        input.setSelectionRange(0, 99999);
+                        const successful = document.execCommand('copy');
+                        if (successful) {
+                          setShareModalCopied(true);
+                          setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
+                          return;
+                        }
+                      }
+                    } catch (err) {
+                      console.log('execCommand fallback failed');
+                    }
+                    
+                    const input = document.getElementById('supabase-share-input');
+                    if (input) {
+                      input.select();
+                      input.setSelectionRange(0, 99999);
+                    }
+                    setShareModalCopied('manual');
+                  }}>Copy Link</button>
+                </div>
+                {shareModalCopied === true && <div style={{ color: '#22c55e', marginBottom: 10, textAlign: 'center' }}>✅ Copied to clipboard!</div>}
+                {shareModalCopied === 'manual' && <div style={{ color: '#eab308', marginBottom: 10, textAlign: 'center' }}>📋 Press Ctrl+C to copy</div>}
               </div>
             )}
-            
-            {error && <div className="error" style={{ marginBottom: 16 }}>{error}</div>}
-            
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={closeShareModal}>Close</button>
-              {shareUrl && (
-                <button className="button" onClick={async () => {
-                  let copied = false;
-                  if (navigator.clipboard && navigator.clipboard.writeText) {
-                    try {
-                      await navigator.clipboard.writeText(shareUrl);
-                      copied = true;
-                    } catch {}
-                  }
-                  if (copied) {
-                    setShareModalCopied(true);
-                    setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
-                  } else {
-                    // fallback: select the input and show a message
-                    const input = document.getElementById('supabase-share-input');
-                    if (input) input.select();
-                    setShareModalCopied('manual');
-                  }
-                }}>Copy Link</button>
-              )}
-            </div>
           </div>
         </div>
       )}
@@ -1208,22 +1167,39 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }}>Close</button>
               <button className="button" onClick={async () => {
-                let copied = false;
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                  try {
+                try {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(shareModalUrl);
-                    copied = true;
-                  } catch {}
+                    setShareModalCopied(true);
+                    setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
+                    return;
+                  }
+                } catch (err) {
+                  console.log('Modern clipboard API failed, trying fallback');
                 }
-                if (copied) {
-                  setShareModalCopied(true);
-                  setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
-                } else {
-                  // fallback: select the input and show a message
+                
+                try {
                   const input = document.getElementById('share-modal-input');
-                  if (input) input.select();
-                  setShareModalCopied('manual');
+                  if (input) {
+                    input.select();
+                    input.setSelectionRange(0, 99999);
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                      setShareModalCopied(true);
+                      setTimeout(() => { setShareModalOpen(false); setShareModalCopied(false); setShareModalType(null); }, 900);
+                      return;
+                    }
+                  }
+                } catch (err) {
+                  console.log('execCommand fallback failed');
                 }
+                
+                const input = document.getElementById('share-modal-input');
+                if (input) {
+                  input.select();
+                  input.setSelectionRange(0, 99999);
+                }
+                setShareModalCopied('manual');
               }}>Copy Link</button>
             </div>
           </div>
@@ -1310,7 +1286,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   setError('File name cannot be empty.');
                   return;
                 }
-                // Preserve extension
                 const oldExt = oldName.includes('.') ? oldName.split('.').pop() : '';
                 const baseNew = newName.includes('.') ? newName.split('.').slice(0, -1).join('.') : newName;
                 const newExt = newName.includes('.') ? newName.split('.').pop() : oldExt;
@@ -1471,7 +1446,6 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 {allFolders.filter(f => {
                   if (!moveItem) return true;
                   if (moveItem.type === 'file') return true;
-                  // For folders, exclude self and subfolders
                   if (moveItem.type === 'folder') {
                     const selfPath = (folder ? folder : '') + moveItem.name;
                     return !f.startsWith(selfPath);
@@ -1664,48 +1638,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           </div>
         </div>
       )}
-      {cloudModal.type === 'move' && (
-        <div className="modal" onClick={() => setCloudModal({ type: null, file: null })}>
-          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Move File</h3>
-            <label style={{ fontWeight: 600 }}>Destination Folder:</label>
-            <select
-              value={cloudModalValue}
-              onChange={e => setCloudModalValue(e.target.value)}
-              className="input-field"
-              style={{ width: '100%', marginBottom: 16 }}
-              autoFocus
-            >
-              <option value="">/ (root)</option>
-              {cloudFolders.map(folder => (
-                <option key={folder} value={folder}>{folder}</option>
-              ))}
-            </select>
-            {error && <div className="error" style={{ marginBottom: 10 }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudModal({ type: null, file: null })}>Cancel</button>
-              <button className="button" onClick={async () => {
-                const newFolder = cloudModalValue.trim();
-                if (!newFolder) {
-                  setError('Folder path cannot be empty.');
-                  return;
-                }
-                if (newFolder === cloudModal.file.folder) {
-                  setCloudModal({ type: null, file: null });
-                  return;
-                }
-                const { error } = await supabase
-                  .from('cloudinary_files')
-                  .update({ folder: newFolder })
-                  .eq('id', cloudModal.file.id);
-                if (!error) setCloudyfyFiles(prev => prev.map(f => f.id === cloudModal.file.id ? { ...f, folder: newFolder } : f));
-                else setError('Failed to move: ' + error.message);
-                setCloudModal({ type: null, file: null });
-              }}>Move</button>
-            </div>
-          </div>
-        </div>
-      )}
+
       {supabaseDeleteModal.open && (
         <div className="modal" onClick={() => setSupabaseDeleteModal({ open: false, file: null })}>
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
