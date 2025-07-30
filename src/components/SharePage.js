@@ -60,56 +60,161 @@ function SharePage() {
     return "other";
   }
 
-  if (fileUrl) {
+  const renderContent = () => {
     if (fileType === "image") {
       return (
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
-          <img src={fileUrl} alt="Preview" style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
-            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
-            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+        <div className="share-content">
+          <div className="share-header">
+            <div className="file-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10 9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2 className="share-title">{fileName}</h2>
+            <p className="share-subtitle">Image file shared via FileStashify</p>
+          </div>
+          
+          <div className="share-preview">
+            <img src={fileUrl} alt="Preview" className="image-preview" />
+          </div>
+          
+          <div className="share-actions">
+            <a href={fileUrl} download={fileName} className="share-button primary">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="7,10 12,15 17,10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Download</span>
+            </a>
+            <button className="share-button secondary" onClick={() => window.history.back()}>
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 12H5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Go Back</span>
+            </button>
           </div>
         </div>
       );
     }
+    
     if (fileType === "pdf") {
       return (
-        <div style={{ width: '100%', height: '80vh', padding: 32 }}>
-          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
-          <div style={{ width: '100%', height: 'calc(100% - 60px)', border: '1px solid #e9ecef', borderRadius: 8, overflow: 'hidden', background: '#f8f9fa' }}>
-            <iframe
-              src={`${fileUrl}#toolbar=1&navpanes=1&scrollbar=1`}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              title="PDF Preview"
-            />
+        <div className="share-content">
+          <div className="share-header">
+            <div className="file-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10 9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2 className="share-title">{fileName}</h2>
+            <p className="share-subtitle">PDF document shared via FileStashify</p>
           </div>
-          <div style={{ marginTop: 16, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
-            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
-            <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#4f8cff', color: 'white' }}>Open in New Tab</a>
-            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+          
+          <div className="share-preview">
+            <div className="pdf-container">
+              <iframe
+                src={`${fileUrl}#toolbar=1&navpanes=1&scrollbar=1`}
+                title="PDF Preview"
+                className="pdf-iframe"
+              />
+            </div>
           </div>
-          <div style={{ marginTop: 12, textAlign: 'center', fontSize: '14px', color: '#666' }}>
-            💡 If the PDF doesn't display, try the "Open in New Tab" button
+          
+          <div className="share-actions">
+            <a href={fileUrl} download={fileName} className="share-button primary">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="7,10 12,15 17,10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Download</span>
+            </a>
+            <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="share-button primary">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 13V19A2 2 0 0 1 16 21H8A2 2 0 0 1 6 19V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="15,3 21,3 21,9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Open in New Tab</span>
+            </a>
+            <button className="share-button secondary" onClick={() => window.history.back()}>
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 12H5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Go Back</span>
+            </button>
+          </div>
+          
+          <div className="share-help">
+            <div className="help-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                <path d="M9.09 9A3 3 0 0 1 12 6A3 3 0 0 1 12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <p>💡 If the PDF doesn't display, try the "Open in New Tab" button</p>
           </div>
         </div>
       );
     }
+    
     if (fileType === "video") {
       return (
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
-          <video controls style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 8, background: '#000' }}>
-            <source src={fileUrl} type={`video/${fileExtension === 'm4v' ? 'mp4' : fileExtension}`}/>
-            Your browser does not support the video tag.
-          </video>
-          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
-            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
-            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+        <div className="share-content">
+          <div className="share-header">
+            <div className="file-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10 9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2 className="share-title">{fileName}</h2>
+            <p className="share-subtitle">Video file shared via FileStashify</p>
+          </div>
+          
+          <div className="share-preview">
+            <video controls className="video-preview">
+              <source src={fileUrl} type={`video/${fileExtension === 'm4v' ? 'mp4' : fileExtension}`}/>
+              Your browser does not support the video tag.
+            </video>
+          </div>
+          
+          <div className="share-actions">
+            <a href={fileUrl} download={fileName} className="share-button primary">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="7,10 12,15 17,10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Download</span>
+            </a>
+            <button className="share-button secondary" onClick={() => window.history.back()}>
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 12H5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Go Back</span>
+            </button>
           </div>
         </div>
       );
     }
+    
     if (fileType === "text") {
       useEffect(() => {
         fetch(fileUrl)
@@ -119,44 +224,127 @@ function SharePage() {
       }, [fileUrl]);
       
       return (
-        <div style={{ padding: 24, maxWidth: '1200px', margin: '0 auto' }}>
-          <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
-          <div style={{ background: '#f7f8fa', borderRadius: 8, minHeight: 400, fontFamily: 'monospace', fontSize: 15, color: '#23272f', whiteSpace: 'pre-wrap', wordBreak: 'break-word', padding: 16, border: '1px solid #e9ecef' }}>
-            {textContent || 'Loading...'}
+        <div className="share-content">
+          <div className="share-header">
+            <div className="file-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10 9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2 className="share-title">{fileName}</h2>
+            <p className="share-subtitle">Text file shared via FileStashify</p>
           </div>
-          <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
-            <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download</a>
-            <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+          
+          <div className="share-preview">
+            <div className="text-preview">
+              {textContent || 'Loading...'}
+            </div>
+          </div>
+          
+          <div className="share-actions">
+            <a href={fileUrl} download={fileName} className="share-button primary">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <polyline points="7,10 12,15 17,10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Download</span>
+            </a>
+            <button className="share-button secondary" onClick={() => window.history.back()}>
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 12H5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Go Back</span>
+            </button>
           </div>
         </div>
       );
     }
+    
     return (
-      <div style={{ textAlign: 'center', padding: 32 }}>
-        <h2 style={{ marginBottom: 24, color: '#333' }}>{fileName}</h2>
-        <p style={{ marginBottom: 24, color: '#666' }}>Preview not supported for this file type.</p>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center' }}>
-          <a href={fileUrl} download={fileName} className="button" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Download File</a>
-          <button className="button" style={{ background: '#eee', color: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => window.history.back()}>Go Back</button>
+      <div className="share-content">
+        <div className="share-header">
+          <div className="file-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M10 9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <h2 className="share-title">{fileName}</h2>
+          <p className="share-subtitle">File shared via FileStashify</p>
+        </div>
+        
+        <div className="share-preview">
+          <div className="unsupported-preview">
+            <div className="unsupported-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2"/>
+                <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+            </div>
+            <p>Preview not supported for this file type.</p>
+          </div>
+        </div>
+        
+        <div className="share-actions">
+          <a href={fileUrl} download={fileName} className="share-button primary">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M21 15V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <polyline points="7,10 12,15 17,10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span>Download File</span>
+          </a>
+          <button className="share-button secondary" onClick={() => window.history.back()}>
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 12H5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span>Go Back</span>
+          </button>
         </div>
       </div>
     );
-  }
+  };
 
   if (loading) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f8f9fa',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', color: '#4f8cff', marginBottom: '16px' }}>Loading shared file...</div>
-          <div style={{ width: '40px', height: '4px', background: '#e0e4ea', borderRadius: '2px', margin: '0 auto', overflow: 'hidden' }}>
-            <div style={{ width: '40%', height: '100%', background: '#4f8cff', borderRadius: '2px', animation: 'loading 1.2s linear infinite' }}></div>
+      <div className="share-container">
+        <div className="share-background">
+          <div className="floating-shapes">
+            <div className="shape shape-1"></div>
+            <div className="shape shape-2"></div>
+            <div className="shape shape-3"></div>
+            <div className="shape shape-4"></div>
+            <div className="shape shape-5"></div>
+          </div>
+        </div>
+        
+        <div className="share-content">
+          <div className="loading-content">
+            <div className="loading-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2V6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 18V22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M4.93 4.93L7.76 7.76" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.24 16.24L19.07 19.07" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 12H6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M18 12H22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M4.93 19.07L7.76 16.24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M16.24 7.76L19.07 4.93" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2>Loading shared file...</h2>
+            <div className="loading-spinner"></div>
           </div>
         </div>
       </div>
@@ -165,25 +353,56 @@ function SharePage() {
 
   if (error) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f8f9fa',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
-      }}>
-        <div style={{ textAlign: 'center', maxWidth: '400px', padding: '32px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>❌</div>
-          <h1 style={{ color: '#333', marginBottom: '16px' }}>Error</h1>
-          <p style={{ color: '#666', lineHeight: '1.5' }}>{error}</p>
-          <button className="button" style={{ marginTop: 24, background: '#eee', color: '#333' }} onClick={() => window.history.back()}>Go Back</button>
+      <div className="share-container">
+        <div className="share-background">
+          <div className="floating-shapes">
+            <div className="shape shape-1"></div>
+            <div className="shape shape-2"></div>
+            <div className="shape shape-3"></div>
+            <div className="shape shape-4"></div>
+            <div className="shape shape-5"></div>
+          </div>
+        </div>
+        
+        <div className="share-content">
+          <div className="error-content">
+            <div className="error-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2"/>
+                <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+            </div>
+            <h2>Error</h2>
+            <p>{error}</p>
+            <button className="share-button secondary" onClick={() => window.history.back()}>
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 12H5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Go Back</span>
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  return null;
+  return (
+    <div className="share-container">
+      <div className="share-background">
+        <div className="floating-shapes">
+          <div className="shape shape-1"></div>
+          <div className="shape shape-2"></div>
+          <div className="shape shape-3"></div>
+          <div className="shape shape-4"></div>
+          <div className="shape shape-5"></div>
+        </div>
+      </div>
+      
+      {renderContent()}
+    </div>
+  );
 }
 
 export default SharePage; 

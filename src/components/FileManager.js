@@ -1056,7 +1056,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Share File</h3>
             
-            <div style={{ 
+            <div className="share-modal-text" style={{ 
               fontSize: '14px', 
               color: '#666', 
               marginBottom: 16, 
@@ -1139,7 +1139,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Share File</h3>
             
-            <div style={{ 
+            <div className="share-modal-text" style={{ 
               fontSize: '14px', 
               color: '#666', 
               marginBottom: 16, 
