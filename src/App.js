@@ -17,6 +17,7 @@ function AppContent({ darkMode, setDarkMode }) {
   const [userEmail, setUserEmail] = useState('');
   const [session, setSession] = useState(null);
   const [showSignUp, setShowSignUp] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -99,6 +100,10 @@ function AppContent({ darkMode, setDarkMode }) {
 
   function handleUserEmail(email) {
     setUserEmail(email);
+  }
+
+  function searchFiles(query) {
+    setSearchQuery(query);
   }
 
   async function signIn() {
@@ -492,17 +497,151 @@ function AppContent({ darkMode, setDarkMode }) {
             <span className="app-title">FileStashify</span>
           </div>
           <div className="user-info">
-            <button
-              className="button"
-              style={{ marginRight: 18, background: darkMode ? '#23272f' : '#e0e4ea', color: darkMode ? '#fff' : '#23272f', border: '1.5px solid #bbb', fontWeight: 600 }}
-              onClick={() => setDarkMode(dm => !dm)}
-              title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            {userEmail && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '20px',
+                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.25)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                marginRight: '18px'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.35)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.25)';
+              }}
+              title="Logged in user"
             >
-              {darkMode ? '🌙 Dark' : '☀️ Light'}
-            </button>
-            {userEmail && <span style={{ color: '#4f8cff', fontWeight: 600, marginRight: 18 }}>{userEmail}</span>}
+              <span style={{
+                fontSize: '16px',
+                color: '#ffffff',
+                fontWeight: '500',
+                textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                letterSpacing: '0.3px'
+              }}>
+                👤
+              </span>
+              <span style={{
+                color: '#ffffff',
+                fontWeight: '600',
+                fontSize: '14px',
+                textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                letterSpacing: '0.3px',
+                maxWidth: '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {userEmail}
+              </span>
+            </div>
+            )}
             {session && (
-              <button onClick={() => supabase.auth.signOut()} className="button logout-button">Logout</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    placeholder="Search files across all folders..."
+                    value={searchQuery}
+                    onChange={(e) => searchFiles(e.target.value)}
+                    style={{
+                      padding: '12px 16px 12px 44px',
+                      border: '2px solid #e1e5e9',
+                      borderRadius: '25px',
+                      fontSize: '15px',
+                      width: '320px',
+                      outline: 'none',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      background: '#ffffff',
+                      color: '#2d3748',
+                      fontWeight: '400',
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#4f8cff';
+                      e.target.style.boxShadow = '0 4px 20px rgba(79, 140, 255, 0.15), 0 0 0 3px rgba(79, 140, 255, 0.1)';
+                      e.target.style.transform = 'scale(1.02)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e1e5e9';
+                      e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.04)';
+                      e.target.style.transform = 'scale(1)';
+                    }}
+                    onMouseEnter={(e) => {
+                      if (document.activeElement !== e.target) {
+                        e.target.style.borderColor = '#cbd5e0';
+                        e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (document.activeElement !== e.target) {
+                        e.target.style.borderColor = '#e1e5e9';
+                        e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.04)';
+                      }
+                    }}
+                  />
+                  <span style={{
+                    position: 'absolute',
+                    left: '16px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#718096',
+                    fontSize: '18px',
+                    pointerEvents: 'none',
+                    transition: 'all 0.3s ease'
+                  }}>
+                    🔍
+                  </span>
+                  {searchQuery && (
+                    <button
+                      onClick={() => searchFiles('')}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: '#a0aec0',
+                        fontSize: '16px',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        width: '24px',
+                        height: '24px'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#f7fafc';
+                        e.target.style.color = '#4a5568';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'transparent';
+                        e.target.style.color = '#a0aec0';
+                      }}
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -515,6 +654,8 @@ function AppContent({ darkMode, setDarkMode }) {
           session={session}
           setSession={setSession}
           darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          searchQuery={searchQuery}
         />
       </div>
       <footer className="app-footer">

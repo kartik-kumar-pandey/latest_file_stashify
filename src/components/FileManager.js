@@ -1,8 +1,46 @@
 import React, { useRef, useEffect, useState } from 'react';
 
-function FileManager({ supabase, bucketName, onUserEmail, session, setSession }) {
+function FileManager({ supabase, bucketName, onUserEmail, session, setSession, darkMode, setDarkMode, searchQuery }) {
   const [files, setFiles] = React.useState([]);
   const [uploading, setUploading] = React.useState(false);
+  const [currentView, setCurrentView] = React.useState('all-files');
+  const [favorites, setFavorites] = React.useState(() => {
+    // Load favorites from localStorage on component mount
+    const savedFavorites = localStorage.getItem('fileManagerFavorites');
+    return savedFavorites ? JSON.parse(savedFavorites) : [];
+  });
+  const [sharedFiles, setSharedFiles] = React.useState(() => {
+    // Load shared files from localStorage on component mount
+    const savedSharedFiles = localStorage.getItem('fileManagerSharedFiles');
+    return savedSharedFiles ? JSON.parse(savedSharedFiles) : [];
+  });
+  const [deletedFiles, setDeletedFiles] = React.useState(() => {
+    // Load deleted files from localStorage on component mount
+    const savedDeletedFiles = localStorage.getItem('fileManagerDeletedFiles');
+    return savedDeletedFiles ? JSON.parse(savedDeletedFiles) : [];
+  });
+  const [tags, setTags] = React.useState(() => {
+    // Load tags from localStorage on component mount
+    const savedTags = localStorage.getItem('fileManagerTags');
+    return savedTags ? JSON.parse(savedTags) : [];
+  });
+  const [fileTags, setFileTags] = React.useState(() => {
+    // Load file-tag relationships from localStorage on component mount
+    const savedFileTags = localStorage.getItem('fileManagerFileTags');
+    return savedFileTags ? JSON.parse(savedFileTags) : {};
+  });
+  const [tagModal, setTagModal] = React.useState({ open: false, file: null, mode: 'add' });
+  const [newTagName, setNewTagName] = React.useState('');
+  const [newTagColor, setNewTagColor] = React.useState('#666666');
+  const [tagSearch, setTagSearch] = React.useState('');
+  const [tagSortBy, setTagSortBy] = React.useState('name'); // 'name', 'count', 'date'
+  const [selectedFiles, setSelectedFiles] = React.useState([]);
+  const [selectedDeletedFiles, setSelectedDeletedFiles] = React.useState([]);
+  const [bulkTagModal, setBulkTagModal] = React.useState({ open: false, tag: null });
+  const [tagTemplateModal, setTagTemplateModal] = React.useState({ open: false });
+  const [viewingTag, setViewingTag] = React.useState(null);
+  const [userSectionOpen, setUserSectionOpen] = React.useState(false);
+  const [allFilesForSearch, setAllFilesForSearch] = React.useState([]);
   const [folder, setFolder] = React.useState('');
   const [newFolderName, setNewFolderName] = React.useState('');
   const [error, setError] = React.useState('');
@@ -47,11 +85,15 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const [cloudPreviewType, setCloudPreviewType] = useState('');
   const [cloudPreviewName, setCloudPreviewName] = useState('');
   const [supabaseDeleteModal, setSupabaseDeleteModal] = useState({ open: false, file: null });
+  const [folderInfoModal, setFolderInfoModal] = useState({ open: false, folder: null });
 
   const [shareModalType, setShareModalType] = useState(null);
 
   React.useEffect(() => {
     if (!supabase) return;
+
+    // Clean up expired files on component mount
+    cleanupExpiredFiles();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -82,6 +124,13 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     }
   }, [session, onUserEmail]);
 
+  // Populate all files for search when files change
+  React.useEffect(() => {
+    if (files.length > 0 || cloudyfyFiles.length > 0) {
+      populateSearchFiles();
+    }
+  }, [files, cloudyfyFiles]);
+
   async function signOut() {
     if (!supabase) return;
     const { error } = await supabase.auth.signOut();
@@ -93,6 +142,629 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
     if (typeof onUserEmail === 'function') onUserEmail('');
   }
 
+  // Navigation functions
+  function navigateToView(view) {
+    setCurrentView(view);
+    // Clear tag filter when navigating to other views
+    if (view !== 'all-files') {
+      setViewingTag(null);
+    }
+  }
+
+  function getRecentFiles() {
+    // Get files sorted by last modified date (most recent first)
+    const allFiles = [...files, ...cloudyfyFiles];
+    return allFiles
+      .sort((a, b) => {
+        const dateA = a.updated_at || a.created_at || new Date(0);
+        const dateB = b.updated_at || b.created_at || new Date(0);
+        return new Date(dateB) - new Date(dateA);
+      })
+      .slice(0, 20); // Show last 20 files
+  }
+
+  function toggleFavorite(file) {
+    const fileKey = file._type === 'cloudinary' ? file.url : file.name;
+    setFavorites(prev => {
+      const isFavorite = prev.some(f => 
+        (f._type === 'cloudinary' ? f.url : f.name) === fileKey
+      );
+      let newFavorites;
+      if (isFavorite) {
+        newFavorites = prev.filter(f => 
+          (f._type === 'cloudinary' ? f.url : f.name) !== fileKey
+        );
+      } else {
+        newFavorites = [...prev, file];
+      }
+      // Save to localStorage
+      localStorage.setItem('fileManagerFavorites', JSON.stringify(newFavorites));
+      return newFavorites;
+    });
+  }
+
+  function getSharedFiles() {
+    // Return files that have been shared (have share links)
+    return sharedFiles;
+  }
+
+  function addToSharedFiles(file, shareUrl, expirySeconds) {
+    const sharedFile = {
+      ...file,
+      shareUrl: shareUrl,
+      sharedAt: new Date().toISOString(),
+      expiresAt: expirySeconds === 'lifetime' ? null : new Date(Date.now() + expirySeconds * 1000).toISOString(),
+      expirySeconds: expirySeconds
+    };
+    
+    setSharedFiles(prev => {
+      const newSharedFiles = [...prev, sharedFile];
+      localStorage.setItem('fileManagerSharedFiles', JSON.stringify(newSharedFiles));
+      return newSharedFiles;
+    });
+  }
+
+  function removeFromSharedFiles(fileName) {
+    setSharedFiles(prev => {
+      const newSharedFiles = prev.filter(f => f.name !== fileName);
+      localStorage.setItem('fileManagerSharedFiles', JSON.stringify(newSharedFiles));
+      return newSharedFiles;
+    });
+  }
+
+  function isFileShared(fileName) {
+    return sharedFiles.some(f => f.name === fileName);
+  }
+
+  function getDeletedFiles() {
+    // Return files that have been "deleted" (moved to trash)
+    return deletedFiles;
+  }
+
+  function moveToTrash(file) {
+    const deletedFile = {
+      ...file,
+      deletedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+      originalPath: folder || ''
+    };
+    
+    setDeletedFiles(prev => {
+      const newDeletedFiles = [...prev, deletedFile];
+      localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(newDeletedFiles));
+      return newDeletedFiles;
+    });
+    
+    // Remove the file/folder from the current view
+    if (file._type === 'supabase' || (!file._type && !file.name.endsWith('/'))) {
+      setFiles(prev => prev.filter(f => f.name !== file.name));
+    } else if (file._type === 'cloudinary') {
+      setCloudyfyFiles(prev => prev.filter(f => f.name !== file.name));
+    } else if (file._type === 'folder' || file.name.endsWith('/')) {
+      // Remove folder from files array (folders have id === null)
+      setFiles(prev => prev.filter(f => f.name !== file.name));
+    }
+  }
+
+  function restoreFromTrash(deletedFile) {
+    setDeletedFiles(prev => {
+      const newDeletedFiles = prev.filter(f => 
+        (f._type === 'cloudinary' ? f.url : f.name) !== (deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name)
+      );
+      localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(newDeletedFiles));
+      return newDeletedFiles;
+    });
+    
+    // Add the file/folder back to the appropriate array
+    if (deletedFile._type === 'supabase' || (!deletedFile._type && !deletedFile.name.endsWith('/'))) {
+      setFiles(prev => [...prev, { ...deletedFile, _type: 'supabase' }]);
+    } else if (deletedFile._type === 'cloudinary') {
+      setCloudyfyFiles(prev => [...prev, { ...deletedFile, _type: 'cloudinary' }]);
+    } else if (deletedFile._type === 'folder' || deletedFile.name.endsWith('/')) {
+      // Add folder back to files array (folders have id === null)
+      setFiles(prev => [...prev, { ...deletedFile, id: null }]);
+    }
+    
+    // Refresh the file lists to ensure everything is in sync
+    if (session) {
+      fetchFiles(session);
+    }
+  }
+
+  function permanentlyDelete(deletedFile) {
+    setDeletedFiles(prev => {
+      const newDeletedFiles = prev.filter(f => 
+        (f._type === 'cloudinary' ? f.url : f.name) !== (deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name)
+      );
+      localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(newDeletedFiles));
+      return newDeletedFiles;
+    });
+    
+    // Actually delete the file/folder from storage
+    if (deletedFile._type === 'supabase') {
+      // For Supabase files, we need to actually delete from storage
+      const filePath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
+      supabase.storage.from(bucketName).remove([filePath]);
+    } else if (deletedFile._type === 'cloudinary') {
+      // Delete from Cloudinary metadata
+      if (deletedFile.id) {
+        supabase
+          .from('cloudinary_files')
+          .delete()
+          .eq('id', deletedFile.id);
+      }
+    } else if (deletedFile._type === 'folder' || deletedFile.name.endsWith('/')) {
+      // For folders, we need to delete all contents and the folder itself
+      const folderPath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
+      const prefix = folderPath.endsWith('/') ? folderPath : folderPath + '/';
+      
+      // List all files in the folder and delete them
+      supabase.storage.from(bucketName).list(prefix, { limit: 1000 }).then(({ data: filesToDelete, error: listError }) => {
+        if (!listError && filesToDelete) {
+          const pathsToDelete = filesToDelete.map(f => prefix + f.name);
+          if (pathsToDelete.length > 0) {
+            supabase.storage.from(bucketName).remove(pathsToDelete);
+          }
+        }
+      });
+      
+      // Also delete any Cloudinary files that were in this folder
+      supabase
+        .from('cloudinary_files')
+        .delete()
+        .eq('folder', folderPath);
+    }
+    
+    // Refresh the file lists
+    if (session) {
+      fetchFiles(session);
+    }
+  }
+
+  function cleanupExpiredFiles() {
+    const now = new Date();
+    setDeletedFiles(prev => {
+      const validFiles = prev.filter(file => {
+        if (!file.expiresAt) return true;
+        return new Date(file.expiresAt) > now;
+      });
+      
+      if (validFiles.length !== prev.length) {
+        localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(validFiles));
+        console.log(`Cleaned up ${prev.length - validFiles.length} expired files from trash`);
+      }
+      
+      return validFiles;
+    });
+  }
+
+  function isFileInTrash(fileName, fileType = 'supabase') {
+    return deletedFiles.some(deletedFile => {
+      if (fileType === 'cloudinary') {
+        return deletedFile.name === fileName && deletedFile._type === 'cloudinary';
+      } else if (fileType === 'folder' || fileName.endsWith('/')) {
+        return deletedFile.name === fileName && (deletedFile._type === 'folder' || deletedFile.name.endsWith('/'));
+      }
+      return deletedFile.name === fileName && (deletedFile._type === 'supabase' || !deletedFile._type);
+    });
+  }
+
+  function getFilesByTag(tag) {
+    // Return files that have the specified tag
+    const filesWithTag = [];
+    
+    // Check Supabase files
+    files.forEach(file => {
+      if (fileTags[file.name] && fileTags[file.name].includes(tag)) {
+        filesWithTag.push({ ...file, _type: 'supabase' });
+      }
+    });
+    
+    // Check Cloudinary files
+    cloudyfyFiles.forEach(file => {
+      if (fileTags[file.name] && fileTags[file.name].includes(tag)) {
+        filesWithTag.push({ ...file, _type: 'cloudinary' });
+      }
+    });
+    
+    return filesWithTag;
+  }
+
+  function addTag(tagName, tagColor = '#666666') {
+    const newTag = { name: tagName, color: tagColor, id: Date.now() };
+    setTags(prev => {
+      const newTags = [...prev, newTag];
+      localStorage.setItem('fileManagerTags', JSON.stringify(newTags));
+      return newTags;
+    });
+    return newTag;
+  }
+
+  function removeTag(tagName) {
+    setTags(prev => {
+      const newTags = prev.filter(tag => tag.name !== tagName);
+      localStorage.setItem('fileManagerTags', JSON.stringify(newTags));
+      return newTags;
+    });
+    
+    // Remove tag from all files
+    setFileTags(prev => {
+      const newFileTags = { ...prev };
+      Object.keys(newFileTags).forEach(fileName => {
+        newFileTags[fileName] = newFileTags[fileName].filter(tag => tag !== tagName);
+        if (newFileTags[fileName].length === 0) {
+          delete newFileTags[fileName];
+        }
+      });
+      localStorage.setItem('fileManagerFileTags', JSON.stringify(newFileTags));
+      return newFileTags;
+    });
+  }
+
+  function addTagToFile(fileName, tagName) {
+    setFileTags(prev => {
+      const newFileTags = { ...prev };
+      if (!newFileTags[fileName]) {
+        newFileTags[fileName] = [];
+      }
+      if (!newFileTags[fileName].includes(tagName)) {
+        newFileTags[fileName] = [...newFileTags[fileName], tagName];
+      }
+      localStorage.setItem('fileManagerFileTags', JSON.stringify(newFileTags));
+      return newFileTags;
+    });
+  }
+
+  function removeTagFromFile(fileName, tagName) {
+    setFileTags(prev => {
+      const newFileTags = { ...prev };
+      if (newFileTags[fileName]) {
+        newFileTags[fileName] = newFileTags[fileName].filter(tag => tag !== tagName);
+        if (newFileTags[fileName].length === 0) {
+          delete newFileTags[fileName];
+        }
+      }
+      localStorage.setItem('fileManagerFileTags', JSON.stringify(newFileTags));
+      return newFileTags;
+    });
+  }
+
+  function getFileTags(fileName) {
+    return fileTags[fileName] || [];
+  }
+
+  function openTagModal(file, mode = 'add') {
+    setTagModal({ open: true, file, mode });
+    setNewTagName('');
+    setNewTagColor('#666666');
+  }
+
+  function closeTagModal() {
+    setTagModal({ open: false, file: null, mode: 'add' });
+    setNewTagName('');
+    setNewTagColor('#666666');
+  }
+
+  // Tag templates for quick setup
+  const tagTemplates = {
+    'Project Management': [
+      { name: 'In Progress', color: '#ffc107' },
+      { name: 'Completed', color: '#28a745' },
+      { name: 'Review', color: '#17a2b8' },
+      { name: 'Blocked', color: '#dc3545' },
+      { name: 'Urgent', color: '#fd7e14' }
+    ],
+    'File Organization': [
+      { name: 'Important', color: '#dc3545' },
+      { name: 'Archive', color: '#6c757d' },
+      { name: 'Draft', color: '#ffc107' },
+      { name: 'Final', color: '#28a745' },
+      { name: 'Reference', color: '#17a2b8' }
+    ],
+    'Content Types': [
+      { name: 'Document', color: '#007bff' },
+      { name: 'Image', color: '#e83e8c' },
+      { name: 'Video', color: '#6f42c1' },
+      { name: 'Audio', color: '#fd7e14' },
+      { name: 'Code', color: '#20c997' }
+    ]
+  };
+
+  function applyTagTemplate(templateName) {
+    const template = tagTemplates[templateName];
+    if (template) {
+      template.forEach(tag => {
+        if (!tags.find(t => t.name === tag.name)) {
+          addTag(tag.name, tag.color);
+        }
+      });
+      setTagTemplateModal({ open: false });
+    }
+  }
+
+  function bulkAddTag(tagName) {
+    selectedFiles.forEach(file => {
+      if (!getFileTags(file.name).includes(tagName)) {
+        addTagToFile(file.name, tagName);
+      }
+    });
+    setSelectedFiles([]);
+    setBulkTagModal({ open: false, tag: null });
+  }
+
+  function bulkRemoveTag(tagName) {
+    selectedFiles.forEach(file => {
+      if (getFileTags(file.name).includes(tagName)) {
+        removeTagFromFile(file.name, tagName);
+      }
+    });
+    setSelectedFiles([]);
+    setBulkTagModal({ open: false, tag: null });
+  }
+
+  function toggleFileSelection(file) {
+    setSelectedFiles(prev => {
+      const isSelected = prev.some(f => f.name === file.name && f._type === file._type);
+      if (isSelected) {
+        return prev.filter(f => !(f.name === file.name && f._type === file._type));
+      } else {
+        return [...prev, file];
+      }
+    });
+  }
+
+  function clearFileSelection() {
+    setSelectedFiles([]);
+  }
+
+  function toggleDeletedFileSelection(deletedFile) {
+    setSelectedDeletedFiles(prev => {
+      const fileKey = deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name;
+      const isSelected = prev.some(f => 
+        (f._type === 'cloudinary' ? f.url : f.name) === fileKey
+      );
+      
+      if (isSelected) {
+        return prev.filter(f => 
+          (f._type === 'cloudinary' ? f.url : f.name) !== fileKey
+        );
+      } else {
+        return [...prev, deletedFile];
+      }
+    });
+  }
+
+  function selectAllDeletedFiles() {
+    setSelectedDeletedFiles(getDeletedFiles());
+  }
+
+  function clearDeletedFileSelection() {
+    setSelectedDeletedFiles([]);
+  }
+
+  function bulkDeleteFromTrash() {
+    if (selectedDeletedFiles.length === 0) return;
+    
+    // Permanently delete all selected files
+    selectedDeletedFiles.forEach(deletedFile => {
+      permanentlyDelete(deletedFile);
+    });
+    
+    // Clear selection after deletion
+    setSelectedDeletedFiles([]);
+  }
+
+  // Get all folders from all locations for global search
+  function getAllFolders() {
+    return files.filter(f => f.id === null).map(f => ({ ...f, _type: 'folder' }));
+  }
+
+  // Recursively get all files from all folders for global search
+  async function getAllFilesRecursively() {
+    const allFiles = [];
+    
+    // Get all files from the current folder structure (root level)
+    const currentFiles = files.filter(f => f.id !== null).map(f => ({ ...f, _type: 'supabase' }));
+    const currentCloudFiles = cloudyfyFiles.map(f => ({ ...f, _type: 'cloudinary' }));
+    
+    allFiles.push(...currentFiles, ...currentCloudFiles);
+    
+    // Get all folders and recursively search them
+    const allFolders = files.filter(f => f.id === null);
+    
+    // Recursive function to search folders
+    async function searchFolderRecursively(folderPath) {
+      try {
+        const { data: folderContents, error } = await supabase.storage
+          .from(bucketName)
+          .list(folderPath);
+        
+        if (!error && folderContents) {
+          for (const item of folderContents) {
+            // Skip .placeholder files
+            if (item.name === '.placeholder') continue;
+            
+            if (item.name.endsWith('/')) {
+              // This is a subfolder, search it recursively
+              const subfolderPath = folderPath + '/' + item.name.slice(0, -1);
+              await searchFolderRecursively(subfolderPath);
+            } else {
+              // This is a file, add it to results
+              allFiles.push({
+                ...item,
+                name: item.name,
+                folder: folderPath,
+                _type: 'supabase'
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Error searching folder ${folderPath}:`, error);
+      }
+    }
+    
+    // Search each top-level folder recursively
+    for (const folder of allFolders) {
+      await searchFolderRecursively(folder.name);
+    }
+    
+    // Fetch ALL Cloudinary files for search (not just current folder)
+    try {
+      const { data: allCloudinaryFiles, error } = await supabase
+        .from('cloudinary_files')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!error && allCloudinaryFiles) {
+        // Filter out files that are in trash
+        const filteredCloudinaryFiles = allCloudinaryFiles.filter(file => !isFileInTrash(file.name, 'cloudinary'));
+        
+        // Add all Cloudinary files to search results
+        const cloudinaryFilesForSearch = filteredCloudinaryFiles.map(file => ({
+          ...file,
+          _type: 'cloudinary',
+          folder: file.folder || ''
+        }));
+        
+        allFiles.push(...cloudinaryFilesForSearch);
+      }
+    } catch (error) {
+      console.error('Error fetching all Cloudinary files for search:', error);
+    }
+    
+    return allFiles;
+  }
+
+  // Populate search files state
+  async function populateSearchFiles() {
+    try {
+      const allFiles = await getAllFilesRecursively();
+      setAllFilesForSearch(allFiles);
+    } catch (error) {
+      console.error('Error populating search files:', error);
+    }
+  }
+
+  // Get folder path for a file (for search results)
+  function getFileFolderPath(file) {
+    if (file._type === 'supabase') {
+      // For Supabase files, the folder path is stored in the file object
+      return file.folder || '';
+    } else if (file._type === 'cloudinary') {
+      // For Cloudinary files, the folder is stored in the folder property
+      return file.folder || '';
+    }
+    return '';
+  }
+
+  // Get display name for file (includes folder path if in subfolder)
+  function getFileDisplayName(file) {
+    if (file._type === 'supabase' && file.folder && file.folder !== '') {
+      // Show folder path in the filename for files in subfolders
+      return `${file.name} (in ${file.folder})`;
+    } else if (file._type === 'cloudinary' && file.folder && file.folder !== '') {
+      // Show folder path in the filename for Cloudinary files in subfolders
+      return `${file.name} (in ${file.folder})`;
+    }
+    return file.name;
+  }
+
+  // Navigate to file's folder when clicked in search results
+  function navigateToFileFolder(file) {
+    const folderPath = getFileFolderPath(file);
+    if (folderPath) {
+      setFolder(folderPath);
+    }
+  }
+
+  // Handle click on search result item
+  function handleSearchResultClick(item) {
+    if (item._type === 'folder') {
+      // Navigate to folder
+      enterFolder(item.name);
+    } else if (item.folder) {
+      // Navigate to file's folder first, then open the file
+      setFolder(item.folder);
+      // Small delay to ensure folder navigation completes
+      setTimeout(() => {
+        if (item._type === 'supabase') {
+          viewFile(item.name);
+        } else if (item._type === 'cloudinary') {
+          setCloudPreviewUrl(item.url);
+          setCloudPreviewType(item.type);
+          setCloudPreviewName(item.name);
+          setCloudPreviewOpen(true);
+        }
+      }, 100);
+    } else {
+      // File is in root, just open it
+      if (item._type === 'supabase') {
+        viewFile(item.name);
+      } else if (item._type === 'cloudinary') {
+        setCloudPreviewUrl(item.url);
+        setCloudPreviewType(item.type);
+        setCloudPreviewName(item.name);
+        setCloudPreviewOpen(true);
+      }
+    }
+  }
+
+  function isFileFavorited(file) {
+    const fileKey = file._type === 'cloudinary' ? file.url : file.name;
+    return favorites.some(f => 
+      (f._type === 'cloudinary' ? f.url : f.name) === fileKey
+    );
+  }
+
+  function handleFavoriteItemClick(item) {
+    if (item._type === 'folder') {
+      // Navigate to folder
+      enterFolder(item.name);
+    } else if (item._type === 'supabase') {
+      // View Supabase file
+      viewFile(item.name);
+    } else if (item._type === 'cloudinary') {
+      // Preview Cloudinary file
+      setCloudPreviewUrl(item.url);
+      setCloudPreviewType(item.type);
+      setCloudPreviewName(item.name);
+      setCloudPreviewOpen(true);
+    }
+  }
+
+  function handleDeletedFileClick(item) {
+    if (item._type === 'folder') {
+      // For folders, we can't navigate since they're deleted, but we can show info
+      setFolderInfoModal({ open: true, folder: item });
+    } else if (item._type === 'supabase') {
+      // For Supabase files, we can still view them if they exist in storage
+      viewFile(item.name);
+    } else if (item._type === 'cloudinary') {
+      // For Cloudinary files, we can still preview them
+      setCloudPreviewUrl(item.url);
+      setCloudPreviewType(item.type);
+      setCloudPreviewName(item.name);
+      setCloudPreviewOpen(true);
+    }
+  }
+
+  function handleSharedFileClick(item) {
+    if (item._type === 'folder') {
+      // For folders, we can navigate to them
+      enterFolder(item.name);
+    } else if (item._type === 'supabase') {
+      // For Supabase files, we can view them
+      viewFile(item.name);
+    } else if (item._type === 'cloudinary') {
+      // For Cloudinary files, we can preview them
+      setCloudPreviewUrl(item.url);
+      setCloudPreviewType(item.type);
+      setCloudPreviewName(item.name);
+      setCloudPreviewOpen(true);
+    }
+  }
+
   async function fetchFiles(session) {
     if (!supabase || !session) return;
     const path = folder ? (folder.endsWith('/') ? folder : folder + '/') : '';
@@ -102,9 +774,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       if (error) {
         setError(error.message);
       } else {
-        setFiles(data);
+        // Filter out files that are in trash
+        const filteredData = data.filter(file => !isFileInTrash(file.name, 'supabase'));
+        setFiles(filteredData);
         
-        if (data.length === 0 && folder) {
+        if (filteredData.length === 0 && folder) {
           const parts = folder.split('/').filter(Boolean);
           parts.pop();
           const parentFolder = parts.length > 0 ? parts.join('/') + '/' : '';
@@ -293,6 +967,43 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       setError('Please sign in first.');
       return;
     }
+    
+    // Check if it's a folder first (fileName ends with '/')
+    if (fileName.endsWith('/')) {
+      // Remove the trailing slash to get the folder name
+      const folderName = fileName.slice(0, -1);
+      // Find the folder in the files array (folders have id === null)
+      const folderToDelete = files.find(f => f.name === folderName && f.id === null);
+      
+      if (folderToDelete) {
+        // Move folder to trash
+        moveToTrash({ ...folderToDelete, _type: 'folder' });
+        return;
+      } else {
+        // Folder not found, try to delete it directly
+        const folderToDelete = { name: fileName, _type: 'folder' };
+        moveToTrash(folderToDelete);
+        return;
+      }
+    }
+    
+    // Find the file to move to trash - check both Supabase files and Cloudinary files
+    const fileToDelete = files.find(f => f.name === fileName);
+    const cloudyfyFileToDelete = cloudyfyFiles.find(f => f.name === fileName);
+    
+    if (fileToDelete) {
+      // Move Supabase file to trash
+      moveToTrash({ ...fileToDelete, _type: 'supabase' });
+      return;
+    }
+    
+    if (cloudyfyFileToDelete) {
+      // Move Cloudinary file to trash
+      moveToTrash({ ...cloudyfyFileToDelete, _type: 'cloudinary' });
+      return;
+    }
+    
+    // Fallback to permanent deletion for edge cases
     let filePath = (folder ? folder + '/' : '') + fileName;
     if (fileName.endsWith('/')) {
       const prefix = filePath.endsWith('/') ? filePath : filePath + '/';
@@ -369,7 +1080,15 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       const currentDomain = window.location.origin;
       const encodedUrl = encodeURIComponent(data.signedUrl);
       const encodedName = encodeURIComponent(fileName);
-      setShareUrl(`${currentDomain}/share?url=${encodedUrl}&name=${encodedName}`);
+      const shareUrl = `${currentDomain}/share?url=${encodedUrl}&name=${encodedName}`;
+      setShareUrl(shareUrl);
+      
+      // Add to shared files tracking
+      const fileToShare = files.find(f => f.name === fileName);
+      if (fileToShare) {
+        addToSharedFiles(fileToShare, shareUrl, expirySeconds);
+      }
+      
       setShareLoading(false);
     } catch (err) {
       setError('Error generating share link');
@@ -497,7 +1216,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         .select('*')
         .eq('folder', folder)
         .order('created_at', { ascending: false });
-      if (!error && data) setCloudyfyFiles(data);
+      if (!error && data) {
+        // Filter out files that are in trash
+        const filteredData = data.filter(file => !isFileInTrash(file.name, 'cloudinary'));
+        setCloudyfyFiles(filteredData);
+      }
     }
     fetchCloudyfyFiles();
   }, [supabase, session, folder]);
@@ -644,10 +1367,52 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
   const folders = files.filter(f => f.id === null).map(f => ({ ...f, _type: 'folder' }));
   const supabaseFiles = files.filter(f => f.id !== null).map(f => ({ ...f, _type: 'supabase' }));
   const cloudFiles = cloudyfyFiles.filter(file => file.folder === folder).map(f => ({ ...f, _type: 'cloudinary' }));
-  const unifiedList = [
+  
+  // Create unified list with tag filtering support
+  let unifiedList = [
     ...folders.sort((a, b) => a.name.localeCompare(b.name)),
     ...[...supabaseFiles, ...cloudFiles].sort((a, b) => a.name.localeCompare(b.name))
   ];
+  
+  // Filter by tag if viewing a specific tag
+  if (viewingTag && currentView === 'all-files') {
+    const taggedFiles = getFilesByTag(viewingTag);
+    // Only show files that are in the current folder context
+    unifiedList = taggedFiles.filter(file => {
+      if (file._type === 'folder') {
+        return true; // Show all folders
+      }
+      // For files, check if they're in the current folder context
+      return true; // For now, show all tagged files regardless of folder
+    });
+  }
+
+  // Filter by search query if search is active - search globally across all files
+  if (searchQuery && searchQuery.trim()) {
+    const query = searchQuery.toLowerCase().trim();
+    
+    // Get all folders for search results
+    const allFolders = getAllFolders();
+    
+    // Create a global list of all files and folders including files from subfolders
+    const globalFileList = [
+      ...allFolders,
+      ...allFilesForSearch
+    ];
+    
+    // Filter by search query
+    const searchResults = globalFileList.filter(item => {
+      // Skip .placeholder files
+      if (item.name === '.placeholder') return false;
+      
+      const fileName = item.name.toLowerCase();
+      const displayName = getFileDisplayName(item).toLowerCase();
+      return fileName.includes(query) || displayName.includes(query);
+    });
+    
+    // Replace the current folder view with search results
+    unifiedList = searchResults.sort((a, b) => a.name.localeCompare(b.name));
+  }
 
 
 
@@ -655,9 +1420,87 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
 
 
 
-  return (
+    return (
     <>
-     
+      {/* Navigation Button Strip */}
+      <div className="navigation-strip">
+        <button
+          className={`nav-btn ${currentView === 'all-files' ? 'active' : ''}`}
+          title="All Files"
+          onClick={() => navigateToView('all-files')}
+        >
+                      <span>📁</span>
+                      <span>All Files</span>
+        </button>
+        
+        <button
+          className={`nav-btn ${currentView === 'recent' ? 'active' : ''}`}
+          title="Recent"
+          onClick={() => navigateToView('recent')}
+        >
+                      <span>🕐</span>
+                      <span>Recent</span>
+        </button>
+        
+        <button
+          className={`nav-btn ${currentView === 'favorites' ? 'active' : ''}`}
+          title="Favorites"
+          onClick={() => navigateToView('favorites')}
+        >
+                      <span>❤️</span>
+                      <span>Favorites</span>
+        </button>
+        
+        <button
+          className={`nav-btn ${currentView === 'shared' ? 'active' : ''}`}
+          title="Shared"
+          onClick={() => navigateToView('shared')}
+        >
+                      <span>🔗</span>
+                      <span>Shared</span>
+        </button>
+        
+        <button
+          className={`nav-btn ${currentView === 'tags' ? 'active' : ''}`}
+          title="Tags"
+          onClick={() => navigateToView('tags')}
+        >
+                      <span>🏷️</span>
+                      <span>Tags</span>
+        </button>
+        
+        <div style={{ flex: 1, minHeight: '20px' }}></div>
+        
+        <button
+          className="nav-btn"
+          title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          onClick={() => setDarkMode(dm => !dm)}
+        >
+                      <span>{darkMode ? '☀️' : '🌙'}</span>
+                      <span>
+              {darkMode ? 'Light' : 'Dark'}
+            </span>
+        </button>
+        
+        <button
+          className="nav-btn"
+          title="Settings"
+          onClick={() => setCloudyfyModalOpen(true)}
+        >
+                      <span>⚙️</span>
+                      <span>Settings</span>
+        </button>
+        
+        <button
+          className={`nav-btn ${currentView === 'deleted' ? 'active' : ''}`}
+          title="Deleted Files"
+          onClick={() => navigateToView('deleted')}
+        >
+                      <span>🗑️</span>
+                      <span>Deleted Files</span>
+        </button>
+      </div>
+      
       <div className="actions-row" style={{ display: 'flex', alignItems: 'center' }}>
         <button
           onClick={goBackFolder}
@@ -733,6 +1576,44 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           Create Folder
         </button>
         <div style={{ flex: 1 }} />
+        
+        {/* Bulk Selection Controls */}
+        {selectedFiles.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px' }}>
+            <span style={{ fontSize: '14px', color: '#666' }}>
+              {selectedFiles.length} selected
+            </span>
+            <button
+              onClick={() => setBulkTagModal({ open: true, tag: null })}
+              style={{
+                background: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              🏷️ Add Tags
+            </button>
+            <button
+              onClick={clearFileSelection}
+              style={{
+                background: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              ✕ Clear
+            </button>
+          </div>
+        )}
+        
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             className="button"
@@ -751,18 +1632,79 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
         onDragLeave={e => { if (e.target === e.currentTarget) { e.preventDefault(); setDragOverGrid(false); } }}
         onDrop={e => { if (e.target === e.currentTarget) handleDropOnGrid(e); }}
       >
-        {unifiedList.length === 0 && (
-          <div style={{ gridColumn: '1/-1', textAlign: 'center', color: '#888', fontSize: '1.1em', padding: '40px 0' }}>
-            No files or folders yet.
+        {/* Global Search Results Header - shown across all views when search is active */}
+        {searchQuery && searchQuery.trim() && (
+          <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px', padding: '16px', background: '#e3f2fd', borderRadius: '8px', border: '1px solid #2196f3' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '18px' }}>🔍</span>
+              <span style={{ fontSize: '16px', fontWeight: '500', color: '#1976d2' }}>
+                Global search results for "{searchQuery}"
+              </span>
+              <span style={{ fontSize: '14px', color: '#666' }}>
+                ({unifiedList.length} item{unifiedList.length !== 1 ? 's' : ''} found across all folders)
+              </span>
+            </div>
           </div>
         )}
-        {unifiedList.map((item, idx) => {
+
+        {/* View-specific content */}
+        {currentView === 'all-files' && !searchQuery.trim() && (
+          <>
+            {/* Tag Filter Header */}
+            {viewingTag && (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px', padding: '16px', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '18px' }}>🏷️</span>
+                  <span style={{ fontSize: '16px', fontWeight: '500', color: '#333' }}>
+                    Viewing files tagged with "{viewingTag}"
+                  </span>
+                  <span style={{ fontSize: '14px', color: '#666' }}>
+                    ({unifiedList.length} file{unifiedList.length !== 1 ? 's' : ''})
+                  </span>
+                  <button
+                    onClick={() => {
+                      setViewingTag(null);
+                      navigateToView('all-files');
+                    }}
+                    style={{
+                      background: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      marginLeft: '8px'
+                    }}
+                  >
+                    ✕ Clear Filter
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+            
+        {/* Empty state - shown across all views */}
+        {unifiedList.length === 0 && currentView === 'all-files' && (
+          <div style={{ gridColumn: '1/-1', textAlign: 'center', color: '#888', fontSize: '1.1em', padding: '40px 0' }}>
+            {searchQuery && searchQuery.trim() 
+              ? `No files found matching "${searchQuery}"` 
+              : viewingTag 
+                ? `No files tagged with "${viewingTag}"` 
+                : 'No files or folders yet.'
+            }
+          </div>
+        )}
+
+        {/* File/Folder rendering - only shown for all-files view */}
+        {currentView === 'all-files' && unifiedList.map((item, idx) => {
           if (item._type === 'folder') {
             return (
               <div
                 key={item.name}
                 className={"folder-card" + (dragOverFolder === item.name ? " drag-over" : "")}
-                onClick={() => enterFolder(item.name)}
+                onClick={() => searchQuery.trim() ? handleSearchResultClick(item) : enterFolder(item.name)}
                 tabIndex={0}
                 title="Open folder"
                 draggable
@@ -774,7 +1716,30 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 onDragOver={e => { e.preventDefault(); setDragOverFolder(item.name); }}
                 onDragLeave={e => { e.preventDefault(); setDragOverFolder(null); }}
                 onDrop={e => handleDropOnFolder(item.name, e)}
+                style={{
+                  position: 'relative',
+                  border: selectedFiles.some(f => f.name === item.name && f._type === 'folder') ? '2px solid #007bff' : undefined
+                }}
               >
+                {selectedFiles.some(f => f.name === item.name && f._type === 'folder') && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '8px',
+                    left: '8px',
+                    background: '#007bff',
+                    color: 'white',
+                    borderRadius: '50%',
+                    width: '20px',
+                    height: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    zIndex: 10
+                  }}>
+                    ✓
+                  </div>
+                )}
                 <span className="folder-icon" role="img" aria-label="Folder">📁</span>
                 <span className="folder-name">{item.name}</span>
                 <div className="card-actions">
@@ -809,6 +1774,28 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   >
                     <span role="img" aria-label="Move">📂</span>
                   </button>
+                  <button
+                    className="card-action-btn"
+                    title={isFileFavorited(item) ? "Remove from favorites" : "Add to favorites"}
+                    onClick={e => {
+                      e.stopPropagation();
+                      toggleFavorite(item);
+                    }}
+                  >
+                    <span role="img" aria-label="Favorite" style={{ color: isFileFavorited(item) ? '#ff6b6b' : '#ccc' }}>
+                      {isFileFavorited(item) ? '❤️' : '🤍'}
+                    </span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Manage tags"
+                    onClick={e => {
+                      e.stopPropagation();
+                      openTagModal(item, 'manage');
+                    }}
+                  >
+                    <span role="img" aria-label="Tags">🏷️</span>
+                  </button>
                 </div>
               </div>
             );
@@ -821,6 +1808,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 tabIndex={0}
                 title="File"
                 draggable
+                onClick={() => searchQuery.trim() ? handleSearchResultClick(item) : null}
                 onDragStart={e => {
                   setDraggedItem({ type: 'file', name: item.name });
                   e.dataTransfer.effectAllowed = 'move';
@@ -839,7 +1827,18 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                 ) : (
                   <span className="file-icon" role="img" aria-label="File" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
                 )}
-                <span className="file-name">{item.name}</span>
+                <span className="file-name">{getFileDisplayName(item)}</span>
+                {/* Show folder path in search results */}
+                {searchQuery.trim() && getFileFolderPath(item) && (
+                  <div style={{ 
+                    fontSize: '11px', 
+                    color: '#666', 
+                    marginTop: '4px',
+                    fontStyle: 'italic'
+                  }}>
+                    📁 {getFileFolderPath(item)}
+                  </div>
+                )}
                 <div className="card-actions">
                   {/* Supabase file action buttons as before */}
                   <button
@@ -907,18 +1906,51 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   >
                     <span role="img" aria-label="Move">📂</span>
                   </button>
+                  <button
+                    className="card-action-btn"
+                    title={isFileFavorited(item) ? "Remove from favorites" : "Add to favorites"}
+                    onClick={e => {
+                      e.stopPropagation();
+                      toggleFavorite(item);
+                    }}
+                  >
+                    <span role="img" aria-label="Favorite" style={{ color: isFileFavorited(item) ? '#ff6b6b' : '#ccc' }}>
+                      {isFileFavorited(item) ? '❤️' : '🤍'}
+                    </span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Manage tags"
+                    onClick={e => {
+                      e.stopPropagation();
+                      openTagModal(item, 'manage');
+                    }}
+                  >
+                    <span role="img" aria-label="Tags">🏷️</span>
+                  </button>
                 </div>
               </div>
             );
           } else if (item._type === 'cloudinary') {
             return (
-              <div key={item.url + idx} className="file-card" tabIndex={0} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)}>
+              <div key={item.url + idx} className="file-card" tabIndex={0} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)} onClick={() => searchQuery.trim() ? handleSearchResultClick(item) : null}>
                 {item.type === 'image' ? (
                   <img src={item.url} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
                 ) : (
                   <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
                 )}
-                <span className="file-name">{item.name}</span>
+                <span className="file-name">{getFileDisplayName(item)}</span>
+                {/* Show folder path in search results */}
+                {searchQuery.trim() && getFileFolderPath(item) && (
+                  <div style={{ 
+                    fontSize: '11px', 
+                    color: '#666', 
+                    marginTop: '4px',
+                    fontStyle: 'italic'
+                  }}>
+                    📁 {getFileFolderPath(item)}
+                  </div>
+                )}
                 <div className="card-actions" style={{ fontSize: 15, gap: 2, padding: '2px 0' }}>
                   {/* Cloudinary file action buttons as before */}
                   <a
@@ -956,6 +1988,9 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                       setShareModalUrl(shareLink);
                       setShareModalType('cloudinary');
                       setShareModalOpen(true);
+                      
+                      // Add to shared files tracking (lifetime expiry for Cloudinary files)
+                      addToSharedFiles(item, shareLink, 'lifetime');
                     }}
                   >
                     <span role="img" aria-label="Share">🔗</span>
@@ -979,6 +2014,30 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
                   >
                     <span role="img" aria-label="Rename">✏️</span>
                   </button>
+                  <button
+                    className="card-action-btn"
+                    title={isFileFavorited(item) ? "Remove from favorites" : "Add to favorites"}
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      toggleFavorite(item);
+                    }}
+                  >
+                    <span role="img" aria-label="Favorite" style={{ color: isFileFavorited(item) ? '#ff6b6b' : '#ccc' }}>
+                      {isFileFavorited(item) ? '❤️' : '🤍'}
+                    </span>
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    title="Manage tags"
+                    style={{ fontSize: 16, padding: '2px 4px', margin: '0 1px' }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      openTagModal(item, 'manage');
+                    }}
+                  >
+                    <span role="img" aria-label="Tags">🏷️</span>
+                  </button>
 
                 </div>
               </div>
@@ -986,6 +2045,610 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           }
           return null;
         })}
+
+        {/* Recent Files View */}
+        {currentView === 'recent' && (
+          <>
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px' }} className="view-header">
+              <h2>🕐 Recent Files</h2>
+              <p>Recently accessed files</p>
+            </div>
+            {getRecentFiles().length === 0 ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center' }} className="view-empty-state">
+                No recent files found.
+              </div>
+            ) : (
+              getRecentFiles().map((item, idx) => {
+                if (item._type === 'folder') {
+                  return (
+                    <div
+                      key={item.name}
+                      className={"folder-card"}
+                      onClick={() => handleFavoriteItemClick(item)}
+                      tabIndex={0}
+                      title="Open folder"
+                      style={{
+                        position: 'relative',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span className="folder-icon" role="img" aria-label="Folder">📁</span>
+                      <span className="folder-name">{getFileDisplayName(item)}</span>
+                    </div>
+                  );
+                } else if (item._type === 'supabase') {
+                  const ext = item.name.split('.').pop().toLowerCase();
+                  return (
+                    <div
+                      key={item.name}
+                      className="file-card"
+                      tabIndex={0}
+                      title="File"
+                      onClick={() => handleFavoriteItemClick(item)}
+                    >
+                      {/* Thumbnail logic */}
+                      {(["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext) && thumbnails[item.name]) ? (
+                        <img src={thumbnails[item.name]} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+                      ) : (["mp4","webm","mov","avi","mkv","m4v"].includes(ext)) ? (
+                        <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                      ) : (ext === 'pdf') ? (
+                        <span className="file-icon" role="img" aria-label="PDF" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                      ) : (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(ext)) ? (
+                        <span className="file-icon" role="img" aria-label="Text" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                      ) : (
+                        <span className="file-icon" role="img" aria-label="File" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                      )}
+                      <span className="file-name">{getFileDisplayName(item)}</span>
+                    </div>
+                  );
+                } else if (item._type === 'cloudinary') {
+                  return (
+                    <div key={item.url + idx} className="file-card" tabIndex={0} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)} onClick={() => handleFavoriteItemClick(item)}>
+                      {item.type === 'image' ? (
+                        <img src={item.url} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+                      ) : (
+                        <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                      )}
+                      <span className="file-name">{getFileDisplayName(item)}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })
+            )}
+          </>
+        )}
+
+        {/* Favorites View */}
+        {currentView === 'favorites' && (
+          <>
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px' }} className="view-header">
+              <h2>❤️ Favorites</h2>
+              <p>Your favorite files and folders</p>
+            </div>
+            {favorites.length === 0 ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center' }} className="view-empty-state">
+                No favorites yet. Click the heart icon on any file to add it to favorites.
+              </div>
+            ) : (
+              favorites.map((item, idx) => {
+                if (item._type === 'folder') {
+                  return (
+                    <div
+                      key={item.name}
+                      className={"folder-card"}
+                      onClick={() => handleFavoriteItemClick(item)}
+                      tabIndex={0}
+                      title="Open folder"
+                      style={{
+                        position: 'relative',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span className="folder-icon" role="img" aria-label="Folder">📁</span>
+                      <span className="folder-name">{getFileDisplayName(item)}</span>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(item);
+                        }}
+                        style={{ 
+                          background: 'none', 
+                          border: 'none', 
+                          fontSize: '16px', 
+                          cursor: 'pointer',
+                          marginTop: '8px'
+                        }}
+                      >
+                        ❤️
+                      </button>
+                    </div>
+                  );
+                } else if (item._type === 'supabase') {
+                  const ext = item.name.split('.').pop().toLowerCase();
+                  return (
+                    <div
+                      key={item.name}
+                      className="file-card"
+                      tabIndex={0}
+                      title="File"
+                      onClick={() => handleFavoriteItemClick(item)}
+                    >
+                      {/* Thumbnail logic */}
+                      {(["png","jpg","jpeg","gif","bmp","webp","svg"].includes(ext) && thumbnails[item.name]) ? (
+                        <img src={thumbnails[item.name]} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+                      ) : (["mp4","webm","mov","avi","mkv","m4v"].includes(ext)) ? (
+                        <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                      ) : (ext === 'pdf') ? (
+                        <span className="file-icon" role="img" aria-label="PDF" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                      ) : (["txt","md","csv","json","js","ts","css","html","xml","log"].includes(ext)) ? (
+                        <span className="file-icon" role="img" aria-label="Text" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                      ) : (
+                        <span className="file-icon" role="img" aria-label="File" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
+                      )}
+                      <span className="file-name">{getFileDisplayName(item)}</span>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(item);
+                        }}
+                        style={{ 
+                          background: 'none', 
+                          border: 'none', 
+                          fontSize: '16px', 
+                          cursor: 'pointer',
+                          marginTop: '8px'
+                        }}
+                      >
+                        ❤️
+                      </button>
+                    </div>
+                  );
+                } else if (item._type === 'cloudinary') {
+                  return (
+                    <div key={item.url + idx} className="file-card" tabIndex={0} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)} onClick={() => handleFavoriteItemClick(item)}>
+                      {item.type === 'image' ? (
+                        <img src={item.url} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
+                      ) : (
+                        <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                      )}
+                      <span className="file-name">{getFileDisplayName(item)}</span>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(item);
+                        }}
+                        style={{ 
+                          background: 'none', 
+                          border: 'none', 
+                          fontSize: '16px', 
+                          cursor: 'pointer',
+                          marginTop: '8px'
+                        }}
+                      >
+                        ❤️
+                      </button>
+                    </div>
+                  );
+                }
+                return null;
+              })
+            )}
+          </>
+        )}
+
+        {/* Shared Files View */}
+        {currentView === 'shared' && (
+          <>
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px' }} className="view-header">
+              <h2>🔗 Shared Files</h2>
+              <p>Files you've shared with others</p>
+            </div>
+            {getSharedFiles().length === 0 ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center' }} className="view-empty-state">
+                No shared files found. Use the share button on any file to create a shareable link.
+              </div>
+            ) : (
+              getSharedFiles().map((item, idx) => (
+                <div 
+                  key={idx} 
+                  className="file-card shared-file-card" 
+                  onClick={() => handleSharedFileClick(item)}
+                  title={`Click to ${item._type === 'folder' ? 'view folder info' : 'open file'}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px', marginRight: '8px' }}>
+                      {item._type === 'folder' ? '📁' : '📄'}
+                    </span>
+                    <span className="file-name shared-file-name" style={{ flex: 1 }}>{getFileDisplayName(item)}</span>
+                  </div>
+                  <div className="shared-file-info">
+                    Shared: {new Date(item.sharedAt).toLocaleDateString()}
+                    {item.expiresAt && (
+                      <span style={{ marginLeft: '8px' }}>
+                        • Expires: {new Date(item.expiresAt).toLocaleDateString()}
+                      </span>
+                    )}
+                    {!item.expiresAt && (
+                      <span style={{ marginLeft: '8px' }} className="shared-file-expires">
+                        • Never expires
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(item.shareUrl);
+                        alert('Share link copied to clipboard!');
+                      }}
+                      style={{
+                        background: '#007bff',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                      title="Copy share link"
+                    >
+                      📋 Copy Link
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeFromSharedFiles(item.name);
+                      }}
+                      style={{
+                        background: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                      title="Revoke share"
+                    >
+                      🚫 Revoke
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </>
+        )}
+
+        {/* Tags View */}
+        {currentView === 'tags' && (
+          <>
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px' }} className="view-header">
+              <h2>🏷️ Tags</h2>
+              <p>Organize files with tags</p>
+              
+              {/* Search and Filter Controls */}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="Search tags..."
+                  value={tagSearch}
+                  onChange={(e) => setTagSearch(e.target.value)}
+                  style={{
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    minWidth: '200px'
+                  }}
+                />
+                <select
+                  value={tagSortBy}
+                  onChange={(e) => setTagSortBy(e.target.value)}
+                  style={{
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    background: 'white'
+                  }}
+                >
+                  <option value="name">Sort by Name</option>
+                  <option value="count">Sort by File Count</option>
+                  <option value="date">Sort by Date Created</option>
+                </select>
+                <button
+                  onClick={() => setTagTemplateModal({ open: true })}
+                  style={{
+                    background: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📋 Use Template
+                </button>
+                <button
+                  onClick={() => openTagModal(null, 'create')}
+                  style={{
+                    background: '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ➕ Create Tag
+                </button>
+              </div>
+            </div>
+            {tags.length === 0 ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center' }} className="view-empty-state">
+                No tags created yet. Click "Create New Tag" to get started!
+              </div>
+            ) : (
+              (() => {
+                // Filter and sort tags
+                const filteredTags = tags
+                  .filter(tag => tag.name.toLowerCase().includes(tagSearch.toLowerCase()))
+                  .map(tag => ({
+                    ...tag,
+                    fileCount: getFilesByTag(tag.name).length
+                  }))
+                  .sort((a, b) => {
+                    if (tagSortBy === 'count') {
+                      return b.fileCount - a.fileCount;
+                    } else if (tagSortBy === 'date') {
+                      return b.id - a.id; // Assuming id is timestamp-based
+                    }
+                    return a.name.localeCompare(b.name);
+                  });
+
+                return filteredTags.map((tag, idx) => (
+                <div 
+                  key={idx} 
+                  className="file-card tag-card" 
+                  onClick={() => navigateToView('all-files')}
+                  title={`Click to view files tagged with "${tag.name}"`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px', marginRight: '8px' }}>🏷️</span>
+                    <span className="file-name tag-name" style={{ flex: 1 }}>
+                      {tag.name}
+                    </span>
+                    <span 
+                      className="tag-color-indicator"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                  </div>
+                  <div className="tag-count">
+                    {getFilesByTag(tag.name).length} file{getFilesByTag(tag.name).length !== 1 ? 's' : ''} tagged
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setViewingTag(tag.name);
+                        navigateToView('all-files');
+                      }}
+                      style={{
+                        background: '#28a745',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                      title="View tagged files"
+                    >
+                      👁️ View Files
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Are you sure you want to delete the tag "${tag.name}"? This will remove it from all files.`)) {
+                          removeTag(tag.name);
+                        }
+                      }}
+                      style={{
+                        background: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                      title="Delete tag"
+                    >
+                      🗑️ Delete Tag
+                    </button>
+                  </div>
+                </div>
+              ));
+              })()
+            )}
+          </>
+        )}
+
+        {/* Deleted Files View */}
+        {currentView === 'deleted' && (
+          <>
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', marginBottom: '20px' }} className="view-header">
+              <h2>🗑️ Deleted Files</h2>
+              <p>Files moved to trash</p>
+              
+              {/* Selection Controls */}
+              {getDeletedFiles().length > 0 && (
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '12px', 
+                  justifyContent: 'center', 
+                  alignItems: 'center', 
+                  marginTop: '16px', 
+                  flexWrap: 'wrap' 
+                }}>
+                  <button
+                    onClick={selectAllDeletedFiles}
+                    style={{
+                      background: '#007bff',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ☑️ Select All
+                  </button>
+                  <button
+                    onClick={clearDeletedFileSelection}
+                    style={{
+                      background: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕ Clear Selection
+                  </button>
+                  {selectedDeletedFiles.length > 0 && (
+                    <button
+                      onClick={bulkDeleteFromTrash}
+                      style={{
+                        background: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        fontSize: '14px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🗑️ Delete Selected ({selectedDeletedFiles.length})
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {getDeletedFiles().length === 0 ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center' }} className="view-empty-state">
+                No deleted files found. Deleted files will appear here.
+              </div>
+            ) : (
+              getDeletedFiles().map((item, idx) => {
+                const isSelected = selectedDeletedFiles.some(f => 
+                  (f._type === 'cloudinary' ? f.url : f.name) === (item._type === 'cloudinary' ? item.url : item.name)
+                );
+                
+                return (
+                <div 
+                  key={idx} 
+                  className={`file-card deleted-file-card ${isSelected ? 'deleted-file-selected' : ''}`}
+                  onClick={() => handleDeletedFileClick(item)}
+                  title={`Click to ${item._type === 'folder' ? 'view folder info' : 'open file'}`}
+                >
+                  {/* Selection Checkbox */}
+                  <div 
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      left: '8px',
+                      background: isSelected ? '#007bff' : 'white',
+                      color: isSelected ? 'white' : '#666',
+                      borderRadius: '50%',
+                      width: '20px',
+                      height: '20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      zIndex: 10,
+                      border: '1px solid #ddd',
+                      cursor: 'pointer'
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleDeletedFileSelection(item);
+                    }}
+                  >
+                    {isSelected ? '✓' : ''}
+                  </div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', marginLeft: '28px' }}>
+                    <span style={{ fontSize: '24px', marginRight: '8px' }}>
+                      {item._type === 'folder' ? '📁' : '📄'}
+                    </span>
+                    <span className="file-name deleted-file-name" style={{ flex: 1 }}>{getFileDisplayName(item)}</span>
+                  </div>
+                  <div className="deleted-file-info">
+                    Deleted: {new Date(item.deletedAt).toLocaleDateString()}
+                    {item.expiresAt && (
+                      <span style={{ marginLeft: '8px' }}>
+                        • Expires: {new Date(item.expiresAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        restoreFromTrash(item);
+                      }}
+                      style={{
+                        background: '#28a745',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                      title="Restore file"
+                    >
+                      🔄 Restore
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        permanentlyDelete(item);
+                      }}
+                      style={{
+                        background: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                      title="Permanently delete"
+                    >
+                      🗑️ Delete Forever
+                    </button>
+                  </div>
+                </div>
+              );
+              })
+            )}
+          </>
+        )}
       </div>
 
       {/* Drag & Drop Upload Area */}
@@ -1584,19 +3247,14 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       {cloudModal.type === 'delete' && (
         <div className="modal" onClick={() => setCloudModal({ type: null, file: null })}>
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Delete File</h3>
-            <div style={{ marginBottom: 16 }}>Are you sure you want to remove <b>{cloudModal.file?.name}</b> from your app? (File will remain in Cloudinary)</div>
+            <h3 style={{ marginTop: 0 }}>Move to Trash</h3>
+            <div style={{ marginBottom: 16 }}>Are you sure you want to move <b>{cloudModal.file?.name}</b> to trash? You can restore it later from the Deleted Files section.</div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setCloudModal({ type: null, file: null })}>Cancel</button>
               <button className="button" style={{ background: '#ff5858', color: '#fff' }} onClick={async () => {
-                const { error } = await supabase
-                  .from('cloudinary_files')
-                  .delete()
-                  .eq('id', cloudModal.file.id);
-                if (!error) setCloudyfyFiles(prev => prev.filter(f => f.id !== cloudModal.file.id));
-                else setError('Failed to delete metadata: ' + error.message);
                 setCloudModal({ type: null, file: null });
-              }}>Delete</button>
+                await deleteFile(cloudModal.file.name);
+              }}>Move to Trash</button>
             </div>
           </div>
         </div>
@@ -1642,14 +3300,14 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
       {supabaseDeleteModal.open && (
         <div className="modal" onClick={() => setSupabaseDeleteModal({ open: false, file: null })}>
           <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Delete File</h3>
-            <div style={{ marginBottom: 16 }}>Are you sure you want to delete <b>{supabaseDeleteModal.file?.name}</b> from Supabase storage? This action cannot be undone.</div>
+            <h3 style={{ marginTop: 0 }}>Move to Trash</h3>
+            <div style={{ marginBottom: 16 }}>Are you sure you want to move <b>{supabaseDeleteModal.file?.name}</b> to trash? You can restore it later from the Deleted Files section.</div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setSupabaseDeleteModal({ open: false, file: null })}>Cancel</button>
               <button className="button" style={{ background: '#ff5858', color: '#fff' }} onClick={async () => {
                 setSupabaseDeleteModal({ open: false, file: null });
                 await deleteFile(supabaseDeleteModal.file.name);
-              }}>Delete</button>
+              }}>Move to Trash</button>
             </div>
           </div>
         </div>
@@ -1677,6 +3335,522 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession })
           </div>
         </div>
       )}
+
+      {folderInfoModal.open && (
+        <div className="modal" onClick={() => setFolderInfoModal({ open: false, folder: null })}>
+          <div className="modal-content" style={{ minWidth: 320, maxWidth: 400, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>📁 Deleted Folder Information</h3>
+            <div style={{ marginBottom: 16 }}>
+              <p><strong>Folder Name:</strong> {folderInfoModal.folder?.name}</p>
+              <p><strong>Deleted:</strong> {folderInfoModal.folder?.deletedAt ? new Date(folderInfoModal.folder.deletedAt).toLocaleString() : 'Unknown'}</p>
+              <p><strong>Original Path:</strong> {folderInfoModal.folder?.originalPath || 'Root'}</p>
+              <p><strong>Expires:</strong> {folderInfoModal.folder?.expiresAt ? new Date(folderInfoModal.folder.expiresAt).toLocaleString() : 'Never'}</p>
+              <p style={{ color: '#666', fontSize: '14px', marginTop: '12px' }}>
+                This folder was moved to trash. You can restore it or permanently delete it using the buttons in the Deleted Files view.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setFolderInfoModal({ open: false, folder: null })}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tag Template Modal */}
+      {tagTemplateModal.open && (
+        <div className="modal" onClick={() => setTagTemplateModal({ open: false })}>
+          <div className="modal-content" style={{ minWidth: 400, maxWidth: 600, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>📋 Tag Templates</h3>
+            <p style={{ color: '#666', marginBottom: 20 }}>Choose a predefined set of tags to quickly set up your tagging system:</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {Object.entries(tagTemplates).map(([templateName, templateTags]) => (
+                <div key={templateName} style={{ border: '1px solid #e9ecef', borderRadius: '8px', padding: '16px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#333' }}>{templateName}</h4>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                    {templateTags.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          background: tag.color,
+                          color: 'white',
+                          padding: '4px 8px',
+                          borderRadius: '12px',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => applyTagTemplate(templateName)}
+                    style={{
+                      background: '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 16px',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Use This Template
+                  </button>
+                </div>
+              ))}
+            </div>
+            
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setTagTemplateModal({ open: false })}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Tag Modal */}
+      {bulkTagModal.open && (
+        <div className="modal" onClick={() => setBulkTagModal({ open: false, tag: null })}>
+          <div className="modal-content" style={{ minWidth: 400, maxWidth: 500, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>🏷️ Bulk Tag Operations</h3>
+            <p style={{ color: '#666', marginBottom: 20 }}>
+              {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
+            </p>
+            
+            <div style={{ marginBottom: 20 }}>
+              <h4 style={{ marginBottom: 8 }}>Add Tag:</h4>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  value={newTagName}
+                  onChange={e => setNewTagName(e.target.value)}
+                  className="input-field"
+                  style={{ flex: 1 }}
+                >
+                  <option value="">Select a tag to add...</option>
+                  {tags.map(tag => (
+                    <option key={tag.id} value={tag.name}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="button"
+                  style={{ background: '#28a745', color: '#fff' }}
+                  onClick={() => {
+                    if (newTagName) {
+                      bulkAddTag(newTagName);
+                      setNewTagName('');
+                    }
+                  }}
+                  disabled={!newTagName}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <h4 style={{ marginBottom: 8 }}>Remove Tag:</h4>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  value={newTagName}
+                  onChange={e => setNewTagName(e.target.value)}
+                  className="input-field"
+                  style={{ flex: 1 }}
+                >
+                  <option value="">Select a tag to remove...</option>
+                  {tags.map(tag => (
+                    <option key={tag.id} value={tag.name}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="button"
+                  style={{ background: '#dc3545', color: '#fff' }}
+                  onClick={() => {
+                    if (newTagName) {
+                      bulkRemoveTag(newTagName);
+                      setNewTagName('');
+                    }
+                  }}
+                  disabled={!newTagName}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="button" style={{ background: '#eee', color: '#333' }} onClick={() => setBulkTagModal({ open: false, tag: null })}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tag Management Modal */}
+      {tagModal.open && (
+        <div className="modal" onClick={closeTagModal}>
+          <div className="modal-content" style={{ minWidth: 400, maxWidth: 600, margin: '0 auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>
+              {tagModal.mode === 'create' ? '🏷️ Create New Tag' : 
+               tagModal.mode === 'manage' ? `🏷️ Manage Tags for "${tagModal.file?.name}"` : '🏷️ Tag Management'}
+            </h3>
+            
+            {tagModal.mode === 'create' && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: '500' }}>Tag Name:</label>
+                  <input
+                    type="text"
+                    value={newTagName}
+                    onChange={e => setNewTagName(e.target.value)}
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    placeholder="Enter tag name..."
+                    autoFocus
+                  />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: '500' }}>Tag Color:</label>
+                  <input
+                    type="color"
+                    value={newTagColor}
+                    onChange={e => setNewTagColor(e.target.value)}
+                    style={{ width: '50px', height: '30px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                  <button className="button" style={{ background: '#eee', color: '#333' }} onClick={closeTagModal}>Cancel</button>
+                  <button 
+                    className="button" 
+                    style={{ background: '#007bff', color: '#fff' }}
+                    onClick={() => {
+                      if (newTagName.trim()) {
+                        addTag(newTagName.trim(), newTagColor);
+                        closeTagModal();
+                      }
+                    }}
+                  >
+                    Create Tag
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {tagModal.mode === 'manage' && tagModal.file && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ marginBottom: 8 }}>Current Tags:</h4>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                    {getFileTags(tagModal.file.name).length === 0 ? (
+                      <span style={{ color: '#888', fontStyle: 'italic' }}>No tags assigned</span>
+                    ) : (
+                      getFileTags(tagModal.file.name).map((tagName, idx) => {
+                        const tag = tags.find(t => t.name === tagName);
+                        return (
+                          <span
+                            key={idx}
+                            style={{
+                              background: tag?.color || '#666666',
+                              color: 'white',
+                              padding: '4px 8px',
+                              borderRadius: '12px',
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            {tagName}
+                            <button
+                              onClick={() => removeTagFromFile(tagModal.file.name, tagName)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                padding: '0',
+                                marginLeft: '4px'
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ marginBottom: 8 }}>Add Tag:</h4>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select
+                      value={newTagName}
+                      onChange={e => setNewTagName(e.target.value)}
+                      className="input-field"
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Select a tag...</option>
+                      {tags.map(tag => (
+                        <option key={tag.id} value={tag.name}>
+                          {tag.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="button"
+                      style={{ background: '#28a745', color: '#fff' }}
+                      onClick={() => {
+                        if (newTagName && !getFileTags(tagModal.file.name).includes(newTagName)) {
+                          addTagToFile(tagModal.file.name, newTagName);
+                          setNewTagName('');
+                        }
+                      }}
+                      disabled={!newTagName || getFileTags(tagModal.file.name).includes(newTagName)}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                  <button className="button" style={{ background: '#eee', color: '#333' }} onClick={closeTagModal}>Close</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+
+
+            {/* Circular User Button - Left Side Above Footer */}
+      <div style={{
+        position: 'fixed',
+        left: '20px',
+        bottom: '80px',
+        zIndex: 1000
+      }}>
+        {/* Circular Button */}
+        <button
+          onClick={() => setUserSectionOpen(!userSectionOpen)}
+          style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            border: '3px solid #ffffff',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            fontSize: '24px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            transition: 'all 0.3s ease',
+            outline: 'none'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.transform = 'scale(1.1)';
+            e.target.style.boxShadow = '0 6px 20px rgba(0,0,0,0.3)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.transform = 'scale(1)';
+            e.target.style.boxShadow = '0 4px 16px rgba(0,0,0,0.2)';
+          }}
+          title="Click to view user information"
+        >
+          {onUserEmail && typeof onUserEmail === 'string' ? onUserEmail.charAt(0).toUpperCase() : 'U'}
+        </button>
+
+        {/* User Information Popup */}
+        {userSectionOpen && (
+          <div style={{
+            position: 'absolute',
+            bottom: '70px',
+            left: '0',
+            background: '#ffffff',
+            borderRadius: '12px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            border: '1px solid #e9ecef',
+            padding: '16px',
+            minWidth: '240px',
+            maxWidth: '320px',
+            zIndex: 1001,
+            animation: 'slideIn 0.3s ease'
+          }}>
+            {/* Close Button */}
+            <button
+              onClick={() => setUserSectionOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '8px',
+                right: '8px',
+                background: 'none',
+                border: 'none',
+                fontSize: '18px',
+                cursor: 'pointer',
+                color: '#666',
+                padding: '4px',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              onMouseEnter={(e) => e.target.style.background = '#f8f9fa'}
+              onMouseLeave={(e) => e.target.style.background = 'transparent'}
+            >
+              ✕
+            </button>
+
+            {/* User Profile Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', paddingRight: '20px' }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: '20px',
+                fontWeight: 'bold',
+                boxShadow: '0 2px 8px rgba(102, 126, 234, 0.3)'
+              }}>
+                {onUserEmail && typeof onUserEmail === 'string' ? onUserEmail.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ 
+                  fontSize: '16px', 
+                  fontWeight: '600', 
+                  color: '#333',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  marginBottom: '2px'
+                }}>
+                  {onUserEmail && typeof onUserEmail === 'string' ? onUserEmail : 'Guest User'}
+                </div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: session ? '#28a745' : '#dc3545',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <span style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: session ? '#28a745' : '#dc3545'
+                  }}></span>
+                  {session ? 'Signed In' : 'Not Signed In'}
+                </div>
+              </div>
+            </div>
+
+            {/* Login Details */}
+            {session && (
+              <div style={{ 
+                background: '#f8f9fa', 
+                borderRadius: '8px', 
+                padding: '12px', 
+                marginBottom: '16px',
+                border: '1px solid #e9ecef'
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: '600', color: '#666', marginBottom: '8px' }}>
+                  📋 Login Details
+                </div>
+                <div style={{ fontSize: '11px', color: '#666', lineHeight: '1.4' }}>
+                  <div style={{ marginBottom: '4px' }}>
+                    <strong>User ID:</strong> {session.user?.id?.substring(0, 8)}...
+                  </div>
+                  <div style={{ marginBottom: '4px' }}>
+                    <strong>Provider:</strong> {session.user?.app_metadata?.provider || 'email'}
+                  </div>
+                  <div style={{ marginBottom: '4px' }}>
+                    <strong>Last Sign In:</strong> {session.user?.last_sign_in_at ? 
+                      new Date(session.user.last_sign_in_at).toLocaleDateString() : 'Unknown'}
+                  </div>
+                  <div>
+                    <strong>Session Expires:</strong> {session.expires_at ? 
+                      new Date(session.expires_at * 1000).toLocaleString() : 'Unknown'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+
+            {/* Logout Section */}
+            <div style={{ 
+              borderTop: '1px solid #e9ecef', 
+              paddingTop: '12px'
+            }}>
+              <div style={{ 
+                fontSize: '12px', 
+                fontWeight: '600', 
+                color: '#666', 
+                marginBottom: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <span>🚪</span>
+                Account Actions
+              </div>
+              
+              <button
+                onClick={() => {
+                  signOut();
+                  setUserSectionOpen(false);
+                }}
+                style={{
+                  background: '#fff5f5',
+                  border: '1px solid #fed7d7',
+                  borderRadius: '6px',
+                  padding: '10px 12px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  color: '#e53e3e',
+                  transition: 'all 0.2s ease',
+                  width: '100%',
+                  fontWeight: '500'
+                }}
+                onMouseEnter={(e) => e.target.style.background = '#fed7d7'}
+                onMouseLeave={(e) => e.target.style.background = '#fff5f5'}
+                title="Sign out of your account"
+              >
+                <span>🚪</span>
+                Sign Out
+              </button>
+              
+              {!session && (
+                <div style={{ 
+                  fontSize: '11px', 
+                  color: '#666', 
+                  textAlign: 'center', 
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f8f9fa',
+                  borderRadius: '4px'
+                }}>
+                  Sign in to access all features
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </>
   );
 }
