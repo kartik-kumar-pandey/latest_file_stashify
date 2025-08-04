@@ -784,19 +784,83 @@ function AppContent({ darkMode, setDarkMode }) {
 }
 
 function ResetPasswordPageWrapper() {
+  let accessToken = null;
+  let type = null;
+  
+  // Try to get from URL search params first
   let params = new URLSearchParams(window.location.search);
-  let accessToken = params.get('access_token');
-  let type = params.get('type');
+  accessToken = params.get('access_token');
+  type = params.get('type');
+  
+  // If not found, try from hash fragment (Supabase default)
   if (!accessToken || !type) {
-    if (window.location.hash && window.location.hash.startsWith('#')) {
+    if (window.location.hash) {
+      // Remove the # and any leading /
       let hash = window.location.hash.substring(1);
-      if (hash.startsWith('/')) hash = hash.substring(1);
-      params = new URLSearchParams(hash);
-      accessToken = params.get('access_token');
-      type = params.get('type');
+      if (hash.startsWith('/')) {
+        hash = hash.substring(1);
+      }
+      
+      // Parse the hash as URLSearchParams
+      try {
+        params = new URLSearchParams(hash);
+        accessToken = params.get('access_token');
+        type = params.get('type');
+      } catch (error) {
+        console.error('Error parsing hash:', error);
+      }
     }
   }
-  console.log("Rendering ResetPasswordPageWrapper", { accessToken, type });
+  
+  // Also try to get from the URL path if it's in the format /reset-password#access_token=...
+  if (!accessToken || !type) {
+    const url = window.location.href;
+    const hashMatch = url.match(/[#&]access_token=([^&]+)/);
+    const typeMatch = url.match(/[#&]type=([^&]+)/);
+    
+    if (hashMatch) {
+      accessToken = decodeURIComponent(hashMatch[1]);
+    }
+    if (typeMatch) {
+      type = decodeURIComponent(typeMatch[1]);
+    }
+  }
+
+  // Try parsing the entire URL as a last resort
+  if (!accessToken || !type) {
+    try {
+      const url = new URL(window.location.href);
+      const hashParams = new URLSearchParams(url.hash.substring(1));
+      
+      if (!accessToken) {
+        accessToken = hashParams.get('access_token');
+      }
+      if (!type) {
+        type = hashParams.get('type');
+      }
+    } catch (error) {
+      console.error('Error parsing URL:', error);
+    }
+  }
+
+  // Extract refresh token for password reset
+  let refreshToken = null;
+  try {
+    const url = new URL(window.location.href);
+    const hashParams = new URLSearchParams(url.hash.substring(1));
+    refreshToken = hashParams.get('refresh_token');
+  } catch (error) {
+    console.error('Error extracting refresh token:', error);
+  }
+  
+  console.log("Rendering ResetPasswordPageWrapper", { 
+    accessToken: accessToken ? 'present' : 'missing', 
+    type,
+    url: window.location.href,
+    hash: window.location.hash,
+    search: window.location.search,
+    fullUrl: window.location.toString()
+  });
 
   let tempSupabase = null;
   try {

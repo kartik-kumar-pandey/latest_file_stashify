@@ -16,7 +16,7 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-  if (!accessToken || type !== 'recovery') {
+    if (!accessToken || type !== 'recovery') {
       setError('Invalid reset link. Please try again.');
     }
   }, [accessToken, type]);
@@ -31,14 +31,14 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
     }
     
     try {
-    localStorage.setItem('supabaseUrl', supabaseUrl);
-    localStorage.setItem('supabaseAnonKey', supabaseAnonKey);
-    const client = createSupabaseClient(supabaseUrl, supabaseAnonKey);
-    setSupabase(client);
-    setShowCredsForm(false);
+      localStorage.setItem('supabaseUrl', supabaseUrl);
+      localStorage.setItem('supabaseAnonKey', supabaseAnonKey);
+      const client = createSupabaseClient(supabaseUrl, supabaseAnonKey);
+      setSupabase(client);
+      setShowCredsForm(false);
     } catch (err) {
       setError('Invalid Supabase credentials. Please check your URL and anon key.');
-  }
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -69,10 +69,10 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
         password: password
       });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        setError(error.message);
         toast.error('❌ ' + error.message);
-    } else {
+      } else {
         setIsSuccess(true);
         toast.success('✅ Password updated successfully!');
         setTimeout(() => {
@@ -160,12 +160,12 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
                   </span>
                   Supabase URL
                 </label>
-          <input
-            type="text"
+                <input
+                  type="text"
                   placeholder="https://your-project.supabase.co"
-            value={supabaseUrl}
+                  value={supabaseUrl}
                   onChange={(e) => setSupabaseUrl(e.target.value)}
-            className="input-field"
+                  className="input-field"
                   required
                 />
               </div>
@@ -181,12 +181,12 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
                   </span>
                   Anonymous Key
                 </label>
-          <input
+                <input
                   type="password"
                   placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-            value={supabaseAnonKey}
+                  value={supabaseAnonKey}
                   onChange={(e) => setSupabaseAnonKey(e.target.value)}
-            className="input-field"
+                  className="input-field"
                   required
                 />
               </div>
@@ -197,9 +197,9 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
                     <path d="M5 13L9 17L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                   <span>Continue</span>
-          </button>
+                </button>
               </div>
-        </form>
+            </form>
 
             <div className="help-section">
               <div className="help-icon">
@@ -211,7 +211,7 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
               </div>
               <div className="help-content">
                 <h4>Need Help?</h4>
-                                 <p>You can find your Supabase URL and anon key in your Supabase project dashboard under Settings &gt; API.</p>
+                <p>You can find your Supabase URL and anon key in your Supabase project dashboard under Settings &gt; API.</p>
               </div>
             </div>
           </div>
@@ -389,12 +389,12 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
                 </span>
                 Confirm Password
               </label>
-        <input
-          type="password"
+              <input
+                type="password"
                 placeholder="Confirm your new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-          className="input-field"
+                className="input-field"
                 required
               />
             </div>
@@ -419,9 +419,9 @@ function ResetPasswordPage({ supabase: initialSupabase, accessToken, type }) {
                     <span>Update Password</span>
                   </>
                 )}
-        </button>
+              </button>
             </div>
-      </form>
+          </form>
 
           <div className="help-section">
             <div className="help-icon">
