@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { userPreferencesService } from '../services/userPreferencesService';
+import { deletedFilesService } from '../services/deletedFilesService';
 
 function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, setSession, darkMode, setDarkMode, searchQuery }) {
   const [files, setFiles] = React.useState([]);
@@ -12,11 +13,7 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
     const savedSharedFiles = localStorage.getItem('fileManagerSharedFiles');
     return savedSharedFiles ? JSON.parse(savedSharedFiles) : [];
   });
-  const [deletedFiles, setDeletedFiles] = React.useState(() => {
-    // Load deleted files from localStorage on component mount
-    const savedDeletedFiles = localStorage.getItem('fileManagerDeletedFiles');
-    return savedDeletedFiles ? JSON.parse(savedDeletedFiles) : [];
-  });
+  const [deletedFiles, setDeletedFiles] = React.useState([]);
   const [tags, setTags] = React.useState([]);
   const [fileTags, setFileTags] = React.useState({});
   const [tagModal, setTagModal] = React.useState({ open: false, file: null, mode: 'add' });
@@ -90,6 +87,7 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
       if (session) {
         fetchFiles(session);
         loadUserPreferences();
+        loadDeletedFiles();
       }
     });
 
@@ -98,12 +96,14 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
       if (session) {
         fetchFiles(session);
         loadUserPreferences();
+        loadDeletedFiles();
       } else {
         setFiles([]);
         setFavorites([]);
         setTags([]);
         setFileTags({});
         setEnhancedFavorites([]);
+        setDeletedFiles([]);
       }
     });
 
@@ -134,6 +134,39 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
       }
     } catch (error) {
       console.error('Error loading user preferences:', error);
+    }
+  }
+
+  // Load deleted files from database
+  async function loadDeletedFiles() {
+    try {
+      const result = await deletedFilesService.getUserDeletedFiles();
+      
+      if (result.success) {
+        const convertedFiles = result.deletedFiles.map(dbFile => 
+          deletedFilesService.convertToAppFormat(dbFile)
+        );
+        setDeletedFiles(convertedFiles);
+        
+        // Migrate from localStorage if needed (only once)
+        const hasMigrated = localStorage.getItem('deletedFilesMigrated');
+        if (!hasMigrated) {
+          const migrationResult = await deletedFilesService.migrateFromLocalStorage();
+          if (migrationResult.success && migrationResult.migratedCount > 0) {
+            // Reload deleted files after migration
+            const reloadResult = await deletedFilesService.getUserDeletedFiles();
+            if (reloadResult.success) {
+              const reloadedFiles = reloadResult.deletedFiles.map(dbFile => 
+                deletedFilesService.convertToAppFormat(dbFile)
+              );
+              setDeletedFiles(reloadedFiles);
+            }
+          }
+          localStorage.setItem('deletedFilesMigrated', 'true');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading deleted files:', error);
     }
   }
 
@@ -359,121 +392,160 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
     return deletedFiles;
   }
 
-  function moveToTrash(file) {
-    const deletedFile = {
-      ...file,
-      deletedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-      originalPath: folder || ''
-    };
-    
-    setDeletedFiles(prev => {
-      const newDeletedFiles = [...prev, deletedFile];
-      localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(newDeletedFiles));
-      return newDeletedFiles;
-    });
-    
-    // Remove the file/folder from the current view
-    if (file._type === 'supabase' || (!file._type && !file.name.endsWith('/'))) {
-      setFiles(prev => prev.filter(f => f.name !== file.name));
-    } else if (file._type === 'cloudinary') {
-      setCloudyfyFiles(prev => prev.filter(f => f.name !== file.name));
-    } else if (file._type === 'folder' || file.name.endsWith('/')) {
-      // Remove folder from files array (folders have id === null)
-      setFiles(prev => prev.filter(f => f.name !== file.name));
-    }
-  }
+  async function moveToTrash(file) {
+    try {
+      const fileMetadata = {
+        size: file.size,
+        type: file.type,
+        url: file.url,
+        thumbnails: file.thumbnails,
+        id: file.id
+      };
 
-  function restoreFromTrash(deletedFile) {
-    setDeletedFiles(prev => {
-      const newDeletedFiles = prev.filter(f => 
-        (f._type === 'cloudinary' ? f.url : f.name) !== (deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name)
+      const result = await deletedFilesService.addToDeletedFiles(
+        file.name,
+        file._type || 'supabase',
+        folder || '',
+        fileMetadata
       );
-      localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(newDeletedFiles));
-      return newDeletedFiles;
-    });
-    
-    // Add the file/folder back to the appropriate array
-    if (deletedFile._type === 'supabase' || (!deletedFile._type && !deletedFile.name.endsWith('/'))) {
-      setFiles(prev => [...prev, { ...deletedFile, _type: 'supabase' }]);
-    } else if (deletedFile._type === 'cloudinary') {
-      setCloudyfyFiles(prev => [...prev, { ...deletedFile, _type: 'cloudinary' }]);
-    } else if (deletedFile._type === 'folder' || deletedFile.name.endsWith('/')) {
-      // Add folder back to files array (folders have id === null)
-      setFiles(prev => [...prev, { ...deletedFile, id: null }]);
-    }
-    
-    // Refresh the file lists to ensure everything is in sync
-    if (session) {
-      fetchFiles(session);
-    }
-  }
 
-  function permanentlyDelete(deletedFile) {
-    setDeletedFiles(prev => {
-      const newDeletedFiles = prev.filter(f => 
-        (f._type === 'cloudinary' ? f.url : f.name) !== (deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name)
-      );
-      localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(newDeletedFiles));
-      return newDeletedFiles;
-    });
-    
-    // Actually delete the file/folder from storage
-    if (deletedFile._type === 'supabase') {
-      // For Supabase files, we need to actually delete from storage
-      const filePath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
-      supabase.storage.from(bucketName).remove([filePath]);
-    } else if (deletedFile._type === 'cloudinary') {
-      // Delete from Cloudinary metadata
-      if (deletedFile.id) {
-        supabase
-          .from('cloudinary_files')
-          .delete()
-          .eq('id', deletedFile.id);
-      }
-    } else if (deletedFile._type === 'folder' || deletedFile.name.endsWith('/')) {
-      // For folders, we need to delete all contents and the folder itself
-      const folderPath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
-      const prefix = folderPath.endsWith('/') ? folderPath : folderPath + '/';
-      
-      // List all files in the folder and delete them
-      supabase.storage.from(bucketName).list(prefix, { limit: 1000 }).then(({ data: filesToDelete, error: listError }) => {
-        if (!listError && filesToDelete) {
-          const pathsToDelete = filesToDelete.map(f => prefix + f.name);
-          if (pathsToDelete.length > 0) {
-            supabase.storage.from(bucketName).remove(pathsToDelete);
-          }
+      if (result.success) {
+        const deletedFile = {
+          ...file,
+          id: result.id,
+          deletedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+          originalPath: folder || ''
+        };
+        
+        setDeletedFiles(prev => [...prev, deletedFile]);
+        
+        // Remove the file/folder from the current view
+        if (file._type === 'supabase' || (!file._type && !file.name.endsWith('/'))) {
+          setFiles(prev => prev.filter(f => f.name !== file.name));
+        } else if (file._type === 'cloudinary') {
+          setCloudyfyFiles(prev => prev.filter(f => f.name !== file.name));
+        } else if (file._type === 'folder' || file.name.endsWith('/')) {
+          // Remove folder from files array (folders have id === null)
+          setFiles(prev => prev.filter(f => f.name !== file.name));
         }
-      });
-      
-      // Also delete any Cloudinary files that were in this folder
-      supabase
-        .from('cloudinary_files')
-        .delete()
-        .eq('folder', folderPath);
-    }
-    
-    // Refresh the file lists
-    if (session) {
-      fetchFiles(session);
+      }
+    } catch (error) {
+      console.error('Error moving file to trash:', error);
     }
   }
 
-  function cleanupExpiredFiles() {
-    const now = new Date();
-    setDeletedFiles(prev => {
-      const validFiles = prev.filter(file => {
-        if (!file.expiresAt) return true;
-        return new Date(file.expiresAt) > now;
-      });
-      
-      if (validFiles.length !== prev.length) {
-        localStorage.setItem('fileManagerDeletedFiles', JSON.stringify(validFiles));
-        console.log(`Cleaned up ${prev.length - validFiles.length} expired files from trash`);
+  async function restoreFromTrash(deletedFile) {
+    try {
+      const result = await deletedFilesService.restoreFromDeletedFiles(
+        deletedFile.name,
+        deletedFile._type || 'supabase',
+        deletedFile.originalPath || ''
+      );
+
+      if (result.success) {
+        setDeletedFiles(prev => {
+          return prev.filter(f => 
+            (f._type === 'cloudinary' ? f.url : f.name) !== (deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name)
+          );
+        });
+        
+        // Add the file/folder back to the appropriate array
+        if (deletedFile._type === 'supabase' || (!deletedFile._type && !deletedFile.name.endsWith('/'))) {
+          setFiles(prev => [...prev, { ...deletedFile, _type: 'supabase' }]);
+        } else if (deletedFile._type === 'cloudinary') {
+          setCloudyfyFiles(prev => [...prev, { ...deletedFile, _type: 'cloudinary' }]);
+        } else if (deletedFile._type === 'folder' || deletedFile.name.endsWith('/')) {
+          // Add folder back to files array (folders have id === null)
+          setFiles(prev => [...prev, { ...deletedFile, id: null }]);
+        }
+        
+        // Refresh the file lists to ensure everything is in sync
+        if (session) {
+          fetchFiles(session);
+        }
       }
-      
-      return validFiles;
-    });
+    } catch (error) {
+      console.error('Error restoring file from trash:', error);
+    }
+  }
+
+  async function permanentlyDelete(deletedFile) {
+    try {
+      const result = await deletedFilesService.permanentlyDeleteFromTrash(
+        deletedFile.name,
+        deletedFile._type || 'supabase',
+        deletedFile.originalPath || ''
+      );
+
+      if (result.success) {
+        setDeletedFiles(prev => {
+          return prev.filter(f => 
+            (f._type === 'cloudinary' ? f.url : f.name) !== (deletedFile._type === 'cloudinary' ? deletedFile.url : deletedFile.name)
+          );
+        });
+        
+        // Actually delete the file/folder from storage
+        if (deletedFile._type === 'supabase') {
+          // For Supabase files, we need to actually delete from storage
+          const filePath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
+          supabase.storage.from(bucketName).remove([filePath]);
+        } else if (deletedFile._type === 'cloudinary') {
+          // Delete from Cloudinary metadata
+          if (deletedFile.id) {
+            supabase
+              .from('cloudinary_files')
+              .delete()
+              .eq('id', deletedFile.id);
+          }
+        } else if (deletedFile._type === 'folder' || deletedFile.name.endsWith('/')) {
+          // For folders, we need to delete all contents and the folder itself
+          const folderPath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
+          const prefix = folderPath.endsWith('/') ? folderPath : folderPath + '/';
+          
+          // List all files in the folder and delete them
+          supabase.storage.from(bucketName).list(prefix, { limit: 1000 }).then(({ data: filesToDelete, error: listError }) => {
+            if (!listError && filesToDelete) {
+              const pathsToDelete = filesToDelete.map(f => prefix + f.name);
+              if (pathsToDelete.length > 0) {
+                supabase.storage.from(bucketName).remove(pathsToDelete);
+              }
+            }
+          });
+          
+          // Also delete any Cloudinary files that were in this folder
+          supabase
+            .from('cloudinary_files')
+            .delete()
+            .eq('folder', folderPath);
+        }
+        
+        // Refresh the file lists to ensure everything is in sync
+        if (session) {
+          fetchFiles(session);
+        }
+      }
+    } catch (error) {
+      console.error('Error permanently deleting file:', error);
+    }
+  }
+
+  async function cleanupExpiredFiles() {
+    try {
+      const result = await deletedFilesService.cleanupExpiredDeletedFiles();
+      if (result.success && result.cleanedCount > 0) {
+        // Reload deleted files after cleanup
+        const reloadResult = await deletedFilesService.getUserDeletedFiles();
+        if (reloadResult.success) {
+          const reloadedFiles = reloadResult.deletedFiles.map(dbFile => 
+            deletedFilesService.convertToAppFormat(dbFile)
+          );
+          setDeletedFiles(reloadedFiles);
+        }
+      }
+    } catch (error) {
+      console.error('Error cleaning up expired files:', error);
+    }
   }
 
   function isFileInTrash(fileName, fileType = 'supabase') {
@@ -708,16 +780,41 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
     setSelectedDeletedFiles([]);
   }
 
-  function bulkDeleteFromTrash() {
+  async function bulkDeleteFromTrash() {
     if (selectedDeletedFiles.length === 0) return;
     
-    // Permanently delete all selected files
-    selectedDeletedFiles.forEach(deletedFile => {
-      permanentlyDelete(deletedFile);
-    });
-    
-    // Clear selection after deletion
-    setSelectedDeletedFiles([]);
+    try {
+      const fileNames = selectedDeletedFiles.map(f => f.name);
+      const fileTypes = selectedDeletedFiles.map(f => f._type || 'supabase');
+      const filePaths = selectedDeletedFiles.map(f => f.originalPath || '');
+      
+      const result = await deletedFilesService.bulkDeleteFromTrash(fileNames, fileTypes, filePaths);
+      
+      if (result.success) {
+        // Remove from local state
+        setDeletedFiles(prev => {
+          return prev.filter(f => 
+            !selectedDeletedFiles.some(selected => 
+              (selected._type === 'cloudinary' ? selected.url : selected.name) === (f._type === 'cloudinary' ? f.url : f.name)
+            )
+          );
+        });
+        
+        // Actually delete files from storage
+        selectedDeletedFiles.forEach(deletedFile => {
+          if (deletedFile._type === 'supabase') {
+            const filePath = (deletedFile.originalPath ? deletedFile.originalPath + '/' : '') + deletedFile.name;
+            supabase.storage.from(bucketName).remove([filePath]);
+          } else if (deletedFile._type === 'cloudinary' && deletedFile.id) {
+            supabase.from('cloudinary_files').delete().eq('id', deletedFile.id);
+          }
+        });
+        
+        setSelectedDeletedFiles([]);
+      }
+    } catch (error) {
+      console.error('Error bulk deleting from trash:', error);
+    }
   }
 
   // Get all folders from all locations for global search

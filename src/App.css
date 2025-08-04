@@ -4521,3 +4521,74 @@ body.dark-mode .deleted-file-selected {
     display: none !important;
   }
 }
+
+/* Signup Help Section */
+.signup-help {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(79, 140, 255, 0.1);
+  border: 1px solid rgba(79, 140, 255, 0.2);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.help-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.resend-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  margin-top: 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.resend-link:hover {
+  background: rgba(79, 140, 255, 0.1);
+  color: var(--primary-dark);
+}
+
+.resend-link:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.resend-link:disabled:hover {
+  background: none;
+}
+
+body.dark-mode .signup-help {
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.2);
+}
+
+body.dark-mode .help-text {
+  color: var(--text-muted);
+}
+
+body.dark-mode .resend-link {
+  color: var(--primary);
+}
+
+body.dark-mode .resend-link:hover {
+  background: rgba(124, 58, 237, 0.1);
+  color: var(--primary-dark);
+}
+
+body.dark-mode .resend-link:disabled {
+  color: var(--text-muted);
+}
+
+body.dark-mode .resend-link:disabled:hover {
+  background: none;
+}

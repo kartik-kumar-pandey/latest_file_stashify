@@ -21,8 +21,7 @@ function AppContent({ darkMode, setDarkMode }) {
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
@@ -56,24 +55,13 @@ function AppContent({ darkMode, setDarkMode }) {
   // Function to load user profile information
   async function loadUserInfo() {
     try {
-      // For now, create basic user info from session
+      // Create basic user info from session
       if (session?.user) {
-        const user = session.user;
-        const userData = user.user_metadata || {};
-        
         setUserInfo({
-          id: user.id,
-          email: user.email,
-          firstName: userData.first_name || null,
-          lastName: userData.last_name || null,
-          displayName: userData.display_name || null,
-          avatarUrl: userData.avatar_url || null,
-          initials: userData.first_name && userData.last_name 
-            ? `${userData.first_name.charAt(0)}${userData.last_name.charAt(0)}`.toUpperCase()
-            : user.email?.charAt(0).toUpperCase() || 'U',
-          fullName: userData.first_name && userData.last_name 
-            ? `${userData.first_name} ${userData.last_name}`
-            : userData.first_name || userData.last_name || user.email || 'User'
+          id: session.user.id,
+          email: session.user.email,
+          initials: session.user.email?.charAt(0).toUpperCase() || 'U',
+          fullName: session.user.email || 'User'
         });
       }
     } catch (error) {
@@ -83,10 +71,6 @@ function AppContent({ darkMode, setDarkMode }) {
         setUserInfo({
           id: session.user.id,
           email: session.user.email,
-          firstName: null,
-          lastName: null,
-          displayName: null,
-          avatarUrl: null,
           initials: session.user.email?.charAt(0).toUpperCase() || 'U',
           fullName: session.user.email || 'User'
         });
@@ -175,6 +159,7 @@ function AppContent({ darkMode, setDarkMode }) {
 
   async function signUp() {
     setError('');
+    
     if (!supabase) {
       setError('Supabase client not initialized.');
       toast.error('❌ Supabase client not initialized.');
@@ -182,50 +167,66 @@ function AppContent({ darkMode, setDarkMode }) {
     }
 
     // Validate required fields
-    if (!firstName.trim()) {
-      setError('First name is required.');
-      toast.error('⚠️ First name is required.');
+    if (!email.trim()) {
+      setError('Email is required.');
+      toast.error('⚠️ Email is required.');
       return;
     }
 
-    if (!lastName.trim()) {
-      setError('Last name is required.');
-      toast.error('⚠️ Last name is required.');
+    if (!password.trim()) {
+      setError('Password is required.');
+      toast.error('⚠️ Password is required.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      toast.error('⚠️ Password must be at least 6 characters long.');
       return;
     }
 
     try {
-      // Sign up with user metadata and disable email confirmation for testing
+      console.log('Starting signup process...');
+      
+      // Sign up with basic user data
       const { data, error } = await supabase.auth.signUp({ 
-        email, 
-        password,
+        email: email.trim(), 
+        password: password.trim(),
         options: {
-          data: {
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            display_name: `${firstName.trim()} ${lastName.trim()}`
-          },
           emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       });
 
+      console.log('Signup response:', { data, error });
+
       if (error) {
+        console.error('Signup error:', error);
         setError(error.message);
         toast.error('❌ ' + error.message);
-      } else {
+        return;
+      }
+
+      if (data.user) {
+        console.log('User created:', data.user);
+        
         // Check if email confirmation is required
-        if (data.user && !data.user.email_confirmed_at) {
-          toast.success('✅ Check your email for the confirmation link!');
+        if (!data.user.email_confirmed_at) {
+          console.log('Email confirmation required');
+          toast.success('✅ Account created! Please check your email for the confirmation link.');
+          toast.info('📧 If you don\'t see the email, check your spam folder.');
         } else {
+          console.log('Email already confirmed');
           toast.success('✅ Account created successfully! You can now sign in.');
         }
         
         // Clear form
-        setFirstName('');
-        setLastName('');
         setEmail('');
         setPassword('');
         setShowSignUp(false); // Switch back to sign in
+      } else {
+        console.error('No user data returned');
+        setError('Signup failed. Please try again.');
+        toast.error('❌ Signup failed. Please try again.');
       }
     } catch (error) {
       console.error('Signup error:', error);
@@ -240,6 +241,8 @@ function AppContent({ darkMode, setDarkMode }) {
     setForgotPasswordEmail('');
     setError('');
   }
+
+
 
   async function handleForgotPasswordSubmit() {
     setIsForgotPasswordLoading(true);
@@ -384,47 +387,7 @@ function AppContent({ darkMode, setDarkMode }) {
               </div>
             )}
 
-            {showSignUp && (
-              <>
-                <div className="input-group">
-                  <label className="input-label">
-                    <span className="label-icon">
-                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </span>
-                    First Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter your first name"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
 
-                <div className="input-group">
-                  <label className="input-label">
-                    <span className="label-icon">
-                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </span>
-                    Last Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter your last name"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
-              </>
-            )}
 
             <div className="input-group">
               <label className="input-label">
@@ -507,6 +470,8 @@ function AppContent({ darkMode, setDarkMode }) {
             </button>
           )}
 
+
+
             <div className="auth-switch">
             {showSignUp ? (
                 <span className="switch-text">
@@ -514,8 +479,6 @@ function AppContent({ darkMode, setDarkMode }) {
                   <button type="button" className="switch-link" onClick={() => { 
                     setShowSignUp(false); 
                     setError(''); 
-                    setFirstName('');
-                    setLastName('');
                     setEmail('');
                     setPassword('');
                   }}>
@@ -528,8 +491,6 @@ function AppContent({ darkMode, setDarkMode }) {
                   <button type="button" className="switch-link" onClick={() => { 
                     setShowSignUp(true); 
                     setError(''); 
-                    setFirstName('');
-                    setLastName('');
                     setEmail('');
                     setPassword('');
                   }}>
