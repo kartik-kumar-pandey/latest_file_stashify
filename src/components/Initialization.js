@@ -16,8 +16,8 @@ function Initialization({ onInitialize }) {
   const [uploadPreset, setUploadPreset] = useState(localStorage.getItem('cloudyfyUploadPreset') || '');
   const [cloudyfyMsg, setCloudyfyMsg] = useState('');
 
-  const TEST_SUPABASE_URL = 'https://ihzkgmhwdjwvcagiexgs.supabase.co';
-  const TEST_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloemtnbWh3ZGp3dmNhZ2lleGdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3MzkxMDIsImV4cCI6MjA2ODMxNTEwMn0.HaO2OwONX9alvJak320RCbm_q7uxDX2gLAln3eRLSWE';
+  const TEST_SUPABASE_URL = 'https://zskxwiemdonhqtafortc.supabase.co';
+  const TEST_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpza3h3aWVtZG9uaHF0YWZvcnRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQyODM2MjcsImV4cCI6MjA2OTg1OTYyN30.LG1h6D1R7-P-DL-YbHDIN4py05Pr9zPyvADXojqNv68';
   const TEST_BUCKET_NAME = 'demo';
 
   async function initializeSupabase() {

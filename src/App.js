@@ -21,25 +21,78 @@ function AppContent({ darkMode, setDarkMode }) {
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (supabase) {
-      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
         setSession(session);
+        if (session) {
+          // Load user profile info when user signs in
+          await loadUserInfo();
+        } else {
+          setUserInfo(null);
+        }
       });
-      supabase.auth.getSession().then(({ data: { session } }) => {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
         setSession(session);
+        if (session) {
+          await loadUserInfo();
+        }
       });
       return () => {
         authListener.subscription.unsubscribe();
       };
     }
   }, [supabase]);
+
+  // Function to load user profile information
+  async function loadUserInfo() {
+    try {
+      // For now, create basic user info from session
+      if (session?.user) {
+        const user = session.user;
+        const userData = user.user_metadata || {};
+        
+        setUserInfo({
+          id: user.id,
+          email: user.email,
+          firstName: userData.first_name || null,
+          lastName: userData.last_name || null,
+          displayName: userData.display_name || null,
+          avatarUrl: userData.avatar_url || null,
+          initials: userData.first_name && userData.last_name 
+            ? `${userData.first_name.charAt(0)}${userData.last_name.charAt(0)}`.toUpperCase()
+            : user.email?.charAt(0).toUpperCase() || 'U',
+          fullName: userData.first_name && userData.last_name 
+            ? `${userData.first_name} ${userData.last_name}`
+            : userData.first_name || userData.last_name || user.email || 'User'
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user info:', error);
+      // Fallback: create basic user info from session
+      if (session?.user) {
+        setUserInfo({
+          id: session.user.id,
+          email: session.user.email,
+          firstName: null,
+          lastName: null,
+          displayName: null,
+          avatarUrl: null,
+          initials: session.user.email?.charAt(0).toUpperCase() || 'U',
+          fullName: session.user.email || 'User'
+        });
+      }
+    }
+  }
 
   useEffect(() => {
     if (!supabase) {
@@ -127,12 +180,50 @@ function AppContent({ darkMode, setDarkMode }) {
       toast.error('❌ Supabase client not initialized.');
       return;
     }
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      setError(error.message);
-      toast.error('❌ ' + error.message);
-    } else {
-      toast.success('✅ Check your email for the confirmation link!');
+
+    // Validate required fields
+    if (!firstName.trim()) {
+      setError('First name is required.');
+      toast.error('⚠️ First name is required.');
+      return;
+    }
+
+    if (!lastName.trim()) {
+      setError('Last name is required.');
+      toast.error('⚠️ Last name is required.');
+      return;
+    }
+
+    try {
+      // Sign up with user metadata
+      const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          data: {
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            display_name: `${firstName.trim()} ${lastName.trim()}`
+          }
+        }
+      });
+
+      if (error) {
+        setError(error.message);
+        toast.error('❌ ' + error.message);
+      } else {
+        toast.success('✅ Check your email for the confirmation link!');
+        // Clear form
+        setFirstName('');
+        setLastName('');
+        setEmail('');
+        setPassword('');
+        setShowSignUp(false); // Switch back to sign in
+      }
+    } catch (error) {
+      console.error('Signup error:', error);
+      setError('An unexpected error occurred. Please try again.');
+      toast.error('❌ An unexpected error occurred. Please try again.');
     }
   }
 
@@ -286,6 +377,48 @@ function AppContent({ darkMode, setDarkMode }) {
               </div>
             )}
 
+            {showSignUp && (
+              <>
+                <div className="input-group">
+                  <label className="input-label">
+                    <span className="label-icon">
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter your first name"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label className="input-label">
+                    <span className="label-icon">
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter your last name"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+              </>
+            )}
+
             <div className="input-group">
               <label className="input-label">
                 <span className="label-icon">
@@ -371,14 +504,28 @@ function AppContent({ darkMode, setDarkMode }) {
             {showSignUp ? (
                 <span className="switch-text">
                 Already have an account?{' '}
-                  <button type="button" className="switch-link" onClick={() => { setShowSignUp(false); setError(''); }}>
+                  <button type="button" className="switch-link" onClick={() => { 
+                    setShowSignUp(false); 
+                    setError(''); 
+                    setFirstName('');
+                    setLastName('');
+                    setEmail('');
+                    setPassword('');
+                  }}>
                   Sign In
                 </button>
               </span>
             ) : (
                 <span className="switch-text">
                 New user?{' '}
-                  <button type="button" className="switch-link" onClick={() => { setShowSignUp(true); setError(''); }}>
+                  <button type="button" className="switch-link" onClick={() => { 
+                    setShowSignUp(true); 
+                    setError(''); 
+                    setFirstName('');
+                    setLastName('');
+                    setEmail('');
+                    setPassword('');
+                  }}>
                   Create an account
                 </button>
               </span>
@@ -497,7 +644,7 @@ function AppContent({ darkMode, setDarkMode }) {
             <span className="app-title">FileStashify</span>
           </div>
           <div className="user-info">
-            {userEmail && (
+            {userInfo && (
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -521,7 +668,7 @@ function AppContent({ darkMode, setDarkMode }) {
                 e.target.style.transform = 'translateY(0)';
                 e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.25)';
               }}
-              title="Logged in user"
+              title={`${userInfo.fullName} (${userInfo.email})`}
             >
               <span style={{
                 fontSize: '16px',
@@ -543,7 +690,7 @@ function AppContent({ darkMode, setDarkMode }) {
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap'
               }}>
-                {userEmail}
+                {userInfo.fullName}
               </span>
             </div>
             )}
@@ -647,16 +794,17 @@ function AppContent({ darkMode, setDarkMode }) {
         </div>
       </div>
       <div className="main-content">
-        <FileManager
-          supabase={supabase}
-          bucketName={bucketName}
-          onUserEmail={handleUserEmail}
-          session={session}
-          setSession={setSession}
-          darkMode={darkMode}
-          setDarkMode={setDarkMode}
-          searchQuery={searchQuery}
-        />
+                    <FileManager 
+              supabase={supabase} 
+              bucketName={bucketName} 
+              onUserEmail={handleUserEmail} 
+              userInfo={userInfo}
+              session={session} 
+              setSession={setSession} 
+              darkMode={darkMode} 
+              setDarkMode={setDarkMode} 
+              searchQuery={searchQuery} 
+            />
       </div>
       <footer className="app-footer">
         © 2025 FileStashify. All rights reserved.

@@ -1,14 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { userPreferencesService } from '../services/userPreferencesService';
 
-function FileManager({ supabase, bucketName, onUserEmail, session, setSession, darkMode, setDarkMode, searchQuery }) {
+function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, setSession, darkMode, setDarkMode, searchQuery }) {
   const [files, setFiles] = React.useState([]);
   const [uploading, setUploading] = React.useState(false);
   const [currentView, setCurrentView] = React.useState('all-files');
-  const [favorites, setFavorites] = React.useState(() => {
-    // Load favorites from localStorage on component mount
-    const savedFavorites = localStorage.getItem('fileManagerFavorites');
-    return savedFavorites ? JSON.parse(savedFavorites) : [];
-  });
+  const [favorites, setFavorites] = React.useState([]);
+  const [enhancedFavorites, setEnhancedFavorites] = React.useState([]);
   const [sharedFiles, setSharedFiles] = React.useState(() => {
     // Load shared files from localStorage on component mount
     const savedSharedFiles = localStorage.getItem('fileManagerSharedFiles');
@@ -19,16 +17,8 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
     const savedDeletedFiles = localStorage.getItem('fileManagerDeletedFiles');
     return savedDeletedFiles ? JSON.parse(savedDeletedFiles) : [];
   });
-  const [tags, setTags] = React.useState(() => {
-    // Load tags from localStorage on component mount
-    const savedTags = localStorage.getItem('fileManagerTags');
-    return savedTags ? JSON.parse(savedTags) : [];
-  });
-  const [fileTags, setFileTags] = React.useState(() => {
-    // Load file-tag relationships from localStorage on component mount
-    const savedFileTags = localStorage.getItem('fileManagerFileTags');
-    return savedFileTags ? JSON.parse(savedFileTags) : {};
-  });
+  const [tags, setTags] = React.useState([]);
+  const [fileTags, setFileTags] = React.useState({});
   const [tagModal, setTagModal] = React.useState({ open: false, file: null, mode: 'add' });
   const [newTagName, setNewTagName] = React.useState('');
   const [newTagColor, setNewTagColor] = React.useState('#666666');
@@ -99,6 +89,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
       setSession(session);
       if (session) {
         fetchFiles(session);
+        loadUserPreferences();
       }
     });
 
@@ -106,8 +97,12 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
       setSession(session);
       if (session) {
         fetchFiles(session);
+        loadUserPreferences();
       } else {
         setFiles([]);
+        setFavorites([]);
+        setTags([]);
+        setFileTags({});
       }
     });
 
@@ -115,6 +110,118 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
       authListener.subscription.unsubscribe();
     };
   }, [supabase, folder, setSession]);
+
+  // Load user preferences from database
+  async function loadUserPreferences() {
+    try {
+      const result = await userPreferencesService.loadUserPreferences();
+      
+      if (result.success) {
+        setFavorites(result.favorites);
+        setTags(result.tags);
+        setFileTags(result.fileTags);
+        
+        // Migrate from localStorage if needed (only once)
+        const hasMigrated = localStorage.getItem('userPreferencesMigrated');
+        if (!hasMigrated) {
+          await userPreferencesService.migrateFromLocalStorage();
+          localStorage.setItem('userPreferencesMigrated', 'true');
+        }
+
+        // Load enhanced favorites with file details
+        await loadEnhancedFavorites(result.favorites);
+      }
+    } catch (error) {
+      console.error('Error loading user preferences:', error);
+    }
+  }
+
+  // Function to load enhanced favorites with file details
+  async function loadEnhancedFavorites(favoritesList) {
+    try {
+      const enhanced = await Promise.all(
+        favoritesList.map(async (favorite) => {
+          return await getFileDetailsForFavorite(favorite);
+        })
+      );
+      setEnhancedFavorites(enhanced);
+    } catch (error) {
+      console.error('Error loading enhanced favorites:', error);
+      // Fallback to basic favorites
+      setEnhancedFavorites(favoritesList.map(f => ({
+        name: f.file_name,
+        _type: f.file_type,
+        originalPath: f.file_path,
+        id: f.id
+      })));
+    }
+  }
+
+  // Function to get file details for favorites display
+  async function getFileDetailsForFavorite(favoriteItem) {
+    try {
+      if (favoriteItem.file_type === 'supabase') {
+        // Get file from Supabase storage
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .list(favoriteItem.file_path, {
+            search: favoriteItem.file_name
+          });
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          const file = data[0];
+          return {
+            name: file.name,
+            _type: 'supabase',
+            originalPath: favoriteItem.file_path,
+            size: file.metadata?.size,
+            updated_at: file.updated_at,
+            created_at: file.created_at,
+            id: favoriteItem.id
+          };
+        }
+      } else if (favoriteItem.file_type === 'cloudinary') {
+        // Get file from Cloudinary table
+        const { data, error } = await supabase
+          .from('cloudinary_files')
+          .select('*')
+          .eq('name', favoriteItem.file_name)
+          .single();
+        
+        if (error) throw error;
+        
+        if (data) {
+          return {
+            name: data.name,
+            _type: 'cloudinary',
+            url: data.url,
+            type: data.type,
+            originalPath: favoriteItem.file_path,
+            id: favoriteItem.id
+          };
+        }
+      }
+      
+      // Fallback to basic info
+      return {
+        name: favoriteItem.file_name,
+        _type: favoriteItem.file_type,
+        originalPath: favoriteItem.file_path,
+        id: favoriteItem.id
+      };
+    } catch (error) {
+      console.error('Error getting file details for favorite:', error);
+      // Return basic info as fallback
+      return {
+        name: favoriteItem.file_name,
+        _type: favoriteItem.file_type,
+        originalPath: favoriteItem.file_path,
+        id: favoriteItem.id
+      };
+    }
+  }
 
   React.useEffect(() => {
     if (!session && typeof onUserEmail === 'function') {
@@ -163,24 +270,54 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
       .slice(0, 20); // Show last 20 files
   }
 
-  function toggleFavorite(file) {
-    const fileKey = file._type === 'cloudinary' ? file.url : file.name;
-    setFavorites(prev => {
-      const isFavorite = prev.some(f => 
-        (f._type === 'cloudinary' ? f.url : f.name) === fileKey
+  async function toggleFavorite(file) {
+    try {
+      const fileType = file._type || 'supabase';
+      const filePath = file.originalPath || folder;
+      
+      const isCurrentlyFavorited = favorites.some(f => 
+        f.file_name === file.name && f.file_path === filePath
       );
-      let newFavorites;
-      if (isFavorite) {
-        newFavorites = prev.filter(f => 
-          (f._type === 'cloudinary' ? f.url : f.name) !== fileKey
-        );
+
+      if (isCurrentlyFavorited) {
+        // Remove from favorites
+        const result = await userPreferencesService.removeFromFavorites(file.name, filePath);
+        if (result.success) {
+          setFavorites(prev => prev.filter(f => 
+            !(f.file_name === file.name && f.file_path === filePath)
+          ));
+          // Also remove from enhanced favorites
+          setEnhancedFavorites(prev => prev.filter(f => 
+            !(f.name === file.name && f.originalPath === filePath)
+          ));
+        }
       } else {
-        newFavorites = [...prev, file];
+        // Add to favorites
+        const result = await userPreferencesService.addToFavorites(file.name, fileType, filePath);
+        if (result.success) {
+          const newFavorite = {
+            id: result.id,
+            file_name: file.name,
+            file_type: fileType,
+            file_path: filePath,
+            created_at: new Date().toISOString()
+          };
+          setFavorites(prev => [...prev, newFavorite]);
+          
+          // Also add to enhanced favorites
+          const enhancedItem = {
+            name: file.name,
+            _type: fileType,
+            originalPath: filePath,
+            id: result.id,
+            ...file // Include all file properties for proper display
+          };
+          setEnhancedFavorites(prev => [...prev, enhancedItem]);
+        }
       }
-      // Save to localStorage
-      localStorage.setItem('fileManagerFavorites', JSON.stringify(newFavorites));
-      return newFavorites;
-    });
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+    }
   }
 
   function getSharedFiles() {
@@ -370,67 +507,95 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
     return filesWithTag;
   }
 
-  function addTag(tagName, tagColor = '#666666') {
-    const newTag = { name: tagName, color: tagColor, id: Date.now() };
-    setTags(prev => {
-      const newTags = [...prev, newTag];
-      localStorage.setItem('fileManagerTags', JSON.stringify(newTags));
-      return newTags;
-    });
-    return newTag;
+  async function addTag(tagName, tagColor = '#666666') {
+    try {
+      const result = await userPreferencesService.createTag(tagName, tagColor);
+      if (result.success) {
+        const newTag = { 
+          id: result.id, 
+          name: tagName, 
+          color: tagColor, 
+          created_at: new Date().toISOString() 
+        };
+        setTags(prev => [...prev, newTag]);
+        return newTag;
+      }
+    } catch (error) {
+      console.error('Error adding tag:', error);
+    }
   }
 
-  function removeTag(tagName) {
-    setTags(prev => {
-      const newTags = prev.filter(tag => tag.name !== tagName);
-      localStorage.setItem('fileManagerTags', JSON.stringify(newTags));
-      return newTags;
-    });
-    
-    // Remove tag from all files
-    setFileTags(prev => {
-      const newFileTags = { ...prev };
-      Object.keys(newFileTags).forEach(fileName => {
-        newFileTags[fileName] = newFileTags[fileName].filter(tag => tag !== tagName);
-        if (newFileTags[fileName].length === 0) {
-          delete newFileTags[fileName];
-        }
-      });
-      localStorage.setItem('fileManagerFileTags', JSON.stringify(newFileTags));
-      return newFileTags;
-    });
+  async function removeTag(tagName) {
+    try {
+      const result = await userPreferencesService.deleteTag(tagName);
+      if (result.success) {
+        setTags(prev => prev.filter(tag => tag.name !== tagName));
+        
+        // Remove tag from all files in state
+        setFileTags(prev => {
+          const newFileTags = { ...prev };
+          Object.keys(newFileTags).forEach(fileName => {
+            newFileTags[fileName] = newFileTags[fileName].filter(tag => tag !== tagName);
+            if (newFileTags[fileName].length === 0) {
+              delete newFileTags[fileName];
+            }
+          });
+          return newFileTags;
+        });
+      }
+    } catch (error) {
+      console.error('Error removing tag:', error);
+    }
   }
 
-  function addTagToFile(fileName, tagName) {
-    setFileTags(prev => {
-      const newFileTags = { ...prev };
-      if (!newFileTags[fileName]) {
-        newFileTags[fileName] = [];
+  async function addTagToFile(fileName, tagName) {
+    try {
+      const filePath = folder;
+      const result = await userPreferencesService.addTagToFile(fileName, tagName, filePath);
+      if (result.success) {
+        setFileTags(prev => {
+          const newFileTags = { ...prev };
+          const key = filePath ? `${filePath}/${fileName}` : fileName;
+          if (!newFileTags[key]) {
+            newFileTags[key] = [];
+          }
+          if (!newFileTags[key].includes(tagName)) {
+            newFileTags[key] = [...newFileTags[key], tagName];
+          }
+          return newFileTags;
+        });
       }
-      if (!newFileTags[fileName].includes(tagName)) {
-        newFileTags[fileName] = [...newFileTags[fileName], tagName];
-      }
-      localStorage.setItem('fileManagerFileTags', JSON.stringify(newFileTags));
-      return newFileTags;
-    });
+    } catch (error) {
+      console.error('Error adding tag to file:', error);
+    }
   }
 
-  function removeTagFromFile(fileName, tagName) {
-    setFileTags(prev => {
-      const newFileTags = { ...prev };
-      if (newFileTags[fileName]) {
-        newFileTags[fileName] = newFileTags[fileName].filter(tag => tag !== tagName);
-        if (newFileTags[fileName].length === 0) {
-          delete newFileTags[fileName];
-        }
+  async function removeTagFromFile(fileName, tagName) {
+    try {
+      const filePath = folder;
+      const result = await userPreferencesService.removeTagFromFile(fileName, tagName, filePath);
+      if (result.success) {
+        setFileTags(prev => {
+          const newFileTags = { ...prev };
+          const key = filePath ? `${filePath}/${fileName}` : fileName;
+          if (newFileTags[key]) {
+            newFileTags[key] = newFileTags[key].filter(tag => tag !== tagName);
+            if (newFileTags[key].length === 0) {
+              delete newFileTags[key];
+            }
+          }
+          return newFileTags;
+        });
       }
-      localStorage.setItem('fileManagerFileTags', JSON.stringify(newFileTags));
-      return newFileTags;
-    });
+    } catch (error) {
+      console.error('Error removing tag from file:', error);
+    }
   }
 
   function getFileTags(fileName) {
-    return fileTags[fileName] || [];
+    const filePath = folder;
+    const key = filePath ? `${filePath}/${fileName}` : fileName;
+    return fileTags[key] || [];
   }
 
   function openTagModal(file, mode = 'add') {
@@ -710,10 +875,10 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
     }
   }
 
-  function isFileFavorited(file) {
-    const fileKey = file._type === 'cloudinary' ? file.url : file.name;
-    return favorites.some(f => 
-      (f._type === 'cloudinary' ? f.url : f.name) === fileKey
+    function isFileFavorited(file) {
+    const filePath = file.originalPath || folder;
+    return favorites.some(f =>
+      f.file_name === file.name && f.file_path === filePath
     );
   }
 
@@ -1488,7 +1653,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
           onClick={() => setCloudyfyModalOpen(true)}
         >
                       <span>⚙️</span>
-                      <span>Settings</span>
+                      <span>Cloudyfy Settings</span>
         </button>
         
         <button
@@ -2126,16 +2291,16 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
               <h2>❤️ Favorites</h2>
               <p>Your favorite files and folders</p>
             </div>
-            {favorites.length === 0 ? (
+            {enhancedFavorites.length === 0 ? (
               <div style={{ gridColumn: '1/-1', textAlign: 'center' }} className="view-empty-state">
                 No favorites yet. Click the heart icon on any file to add it to favorites.
               </div>
             ) : (
-              favorites.map((item, idx) => {
+              enhancedFavorites.map((item, idx) => {
                 if (item._type === 'folder') {
                   return (
                     <div
-                      key={item.name}
+                      key={item.id}
                       className={"folder-card"}
                       onClick={() => handleFavoriteItemClick(item)}
                       tabIndex={0}
@@ -2168,7 +2333,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
                   const ext = item.name.split('.').pop().toLowerCase();
                   return (
                     <div
-                      key={item.name}
+                      key={item.id}
                       className="file-card"
                       tabIndex={0}
                       title="File"
@@ -2206,11 +2371,11 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
                   );
                 } else if (item._type === 'cloudinary') {
                   return (
-                    <div key={item.url + idx} className="file-card" tabIndex={0} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)} onClick={() => handleFavoriteItemClick(item)}>
-                      {item.type === 'image' ? (
+                    <div key={item.id} className="file-card" tabIndex={0} title={item.type ? item.type.charAt(0).toUpperCase() + item.type.slice(1) : "Cloudinary File"} onClick={() => handleFavoriteItemClick(item)}>
+                      {item.type === 'image' && item.url ? (
                         <img src={item.url} alt={item.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
                       ) : (
-                        <span className="file-icon" role="img" aria-label="Video" style={{ fontSize: 40, marginBottom: 8 }}>🎬</span>
+                        <span className="file-icon" role="img" aria-label="File" style={{ fontSize: 40, marginBottom: 8 }}>📄</span>
                       )}
                       <span className="file-name">{getFileDisplayName(item)}</span>
                       <button 
@@ -3664,7 +3829,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
           }}
           title="Click to view user information"
         >
-          {onUserEmail && typeof onUserEmail === 'string' ? onUserEmail.charAt(0).toUpperCase() : 'U'}
+          {userInfo?.initials || (onUserEmail && typeof onUserEmail === 'string' ? onUserEmail.charAt(0).toUpperCase() : 'U')}
         </button>
 
         {/* User Information Popup */}
@@ -3722,7 +3887,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
                 fontWeight: 'bold',
                 boxShadow: '0 2px 8px rgba(102, 126, 234, 0.3)'
               }}>
-                {onUserEmail && typeof onUserEmail === 'string' ? onUserEmail.charAt(0).toUpperCase() : 'U'}
+                {userInfo?.initials || (onUserEmail && typeof onUserEmail === 'string' ? onUserEmail.charAt(0).toUpperCase() : 'U')}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ 
@@ -3734,7 +3899,7 @@ function FileManager({ supabase, bucketName, onUserEmail, session, setSession, d
                   textOverflow: 'ellipsis',
                   marginBottom: '2px'
                 }}>
-                  {onUserEmail && typeof onUserEmail === 'string' ? onUserEmail : 'Guest User'}
+                  {userInfo?.fullName || (onUserEmail && typeof onUserEmail === 'string' ? onUserEmail : 'Guest User')}
                 </div>
                 <div style={{ 
                   fontSize: '12px', 
