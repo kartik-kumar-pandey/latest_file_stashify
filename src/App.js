@@ -195,7 +195,7 @@ function AppContent({ darkMode, setDarkMode }) {
     }
 
     try {
-      // Sign up with user metadata
+      // Sign up with user metadata and disable email confirmation for testing
       const { data, error } = await supabase.auth.signUp({ 
         email, 
         password,
@@ -204,7 +204,8 @@ function AppContent({ darkMode, setDarkMode }) {
             first_name: firstName.trim(),
             last_name: lastName.trim(),
             display_name: `${firstName.trim()} ${lastName.trim()}`
-          }
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       });
 
@@ -212,7 +213,13 @@ function AppContent({ darkMode, setDarkMode }) {
         setError(error.message);
         toast.error('❌ ' + error.message);
       } else {
-        toast.success('✅ Check your email for the confirmation link!');
+        // Check if email confirmation is required
+        if (data.user && !data.user.email_confirmed_at) {
+          toast.success('✅ Check your email for the confirmation link!');
+        } else {
+          toast.success('✅ Account created successfully! You can now sign in.');
+        }
+        
         // Clear form
         setFirstName('');
         setLastName('');

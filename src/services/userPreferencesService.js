@@ -19,20 +19,43 @@ export class UserPreferencesService {
     try {
       const supabase = this.getSupabase();
       if (!supabase) {
-        console.error('Supabase client not available');
         return { success: false, error: 'Supabase client not available' };
       }
 
+      // Get current user
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+
+      // Try RPC first
       const { data, error } = await supabase.rpc('add_to_favorites', {
         p_file_name: fileName,
         p_file_type: fileType,
         p_file_path: filePath
       });
 
-      if (error) throw error;
+      if (error) {
+        // Fallback: direct insert
+        const { data: insertData, error: insertError } = await supabase
+          .from('user_favorites')
+          .insert({
+            user_id: user.id,
+            file_name: fileName,
+            file_type: fileType,
+            file_path: filePath
+          })
+          .select();
+
+        if (insertError) {
+          throw insertError;
+        }
+        
+        return { success: true, id: insertData[0]?.id };
+      }
+
       return { success: true, id: data };
     } catch (error) {
-      console.error('Error adding to favorites:', error);
       return { success: false, error: error.message };
     }
   }
@@ -61,16 +84,17 @@ export class UserPreferencesService {
     try {
       const supabase = this.getSupabase();
       if (!supabase) {
-        console.error('Supabase client not available for getUserFavorites');
         return { success: false, error: 'Supabase client not available', favorites: [] };
       }
 
       const { data, error } = await supabase.rpc('get_user_favorites');
       
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
+      
       return { success: true, favorites: data || [] };
     } catch (error) {
-      console.error('Error getting favorites:', error);
       return { success: false, error: error.message, favorites: [] };
     }
   }
@@ -139,16 +163,17 @@ export class UserPreferencesService {
     try {
       const supabase = this.getSupabase();
       if (!supabase) {
-        console.error('Supabase client not available for getUserTags');
         return { success: false, error: 'Supabase client not available', tags: [] };
       }
 
       const { data, error } = await supabase.rpc('get_user_tags');
       
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
+      
       return { success: true, tags: data || [] };
     } catch (error) {
-      console.error('Error getting tags:', error);
       return { success: false, error: error.message, tags: [] };
     }
   }
@@ -219,16 +244,17 @@ export class UserPreferencesService {
     try {
       const supabase = this.getSupabase();
       if (!supabase) {
-        console.error('Supabase client not available for getAllFileTags');
         return { success: false, error: 'Supabase client not available', fileTags: [] };
       }
 
       const { data, error } = await supabase.rpc('get_all_file_tags');
       
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
+      
       return { success: true, fileTags: data || [] };
     } catch (error) {
-      console.error('Error getting all file tags:', error);
       return { success: false, error: error.message, fileTags: [] };
     }
   }
@@ -289,8 +315,13 @@ export class UserPreferencesService {
     try {
       const supabase = this.getSupabase();
       if (!supabase) {
-        console.error('Supabase client not available for loadUserPreferences');
         return { success: false, error: 'Supabase client not available' };
+      }
+
+      // Check if user is authenticated
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        return { success: false, error: 'User not authenticated' };
       }
 
       const [favoritesResult, tagsResult, fileTagsResult] = await Promise.all([
@@ -306,7 +337,6 @@ export class UserPreferencesService {
         fileTags: this.convertFileTagsToObject(fileTagsResult.fileTags || [])
       };
     } catch (error) {
-      console.error('Error loading user preferences:', error);
       return { success: false, error: error.message };
     }
   }

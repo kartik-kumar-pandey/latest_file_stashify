@@ -103,6 +103,7 @@ function FileManager({ supabase, bucketName, onUserEmail, userInfo, session, set
         setFavorites([]);
         setTags([]);
         setFileTags({});
+        setEnhancedFavorites([]);
       }
     });
 
